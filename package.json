@@ -1,0 +1,78 @@
+{
+  "name": "opencode-qoder-bridge",
+  "version": "0.1.0",
+  "description": "opencode plugin that bridges Qoder AI models via @qoder-ai/qoder-agent-sdk",
+  "author": "Naoufal El Bani",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/naoufalelbani/opencode-qoder-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/naoufalelbani/opencode-qoder-bridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/naoufalelbani/opencode-qoder-bridge.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "opencode-qoder-bridge": "bin/statusline.mjs",
+    "qoder-usage": "bin/usage.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE",
+    "RELEASING.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "default": "./dist/provider.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "default": "./dist/tui.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/bridge.test.mjs",
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check"
+  },
+  "dependencies": {
+    "@ai-sdk/provider": "^3.0.14",
+    "@opencode-ai/plugin": "1.18.5",
+    "@opentui/solid": "0.4.5",
+    "@qoder-ai/qoder-agent-sdk": "^1.0.15",
+    "jsonc-parser": "^3.3.1",
+    "solid-js": "1.9.12",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "qoder",
+    "ai",
+    "llm"
+  ]
+}
