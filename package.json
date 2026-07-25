@@ -1,6 +1,6 @@
 {
   "name": "opencode-qoder-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "opencode plugin that bridges Qoder AI models via @qoder-ai/qoder-agent-sdk",
   "author": "Naoufal El Bani",
   "type": "module",
@@ -25,6 +25,7 @@
   "files": [
     "dist",
     "bin",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE",
     "RELEASING.md",
@@ -49,24 +50,44 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test test/bridge.test.mjs",
-    "check": "npm run typecheck && npm test",
+    "audit": "npm audit --audit-level=low",
+    "check": "npm run typecheck && npm test && npm run audit",
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@ai-sdk/provider": "^3.0.14",
-    "@opencode-ai/plugin": "1.18.5",
-    "@opentui/solid": "0.4.5",
     "@qoder-ai/qoder-agent-sdk": "^1.0.15",
     "jsonc-parser": "^3.3.1",
-    "solid-js": "1.9.12",
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@ai-sdk/provider": "^3.0.14",
+    "@opencode-ai/plugin": "1.18.5",
+    "@opentui/solid": "0.4.5",
     "@types/node": "^22.10.0",
+    "solid-js": "1.9.12",
     "typescript": "^5.7.0"
   },
+  "peerDependencies": {
+    "@opentui/solid": ">=0.4.5",
+    "solid-js": ">=1.9.12"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "overrides": {
+    "@babel/core": "8.0.1",
+    "@hono/node-server": "2.0.11",
+    "brace-expansion": "5.0.8",
+    "glob": "13.0.6",
+    "minimatch": "10.2.5"
+  },
   "engines": {
-    "node": ">=20"
+    "node": "^22.18.0 || >=24.11.0"
   },
   "keywords": [
     "opencode",

@@ -1,5 +1,4 @@
 import type { Hooks, Config, Plugin } from "@opencode-ai/plugin";
-import { tool } from "@opencode-ai/plugin/tool";
 import { FALLBACK_MODELS, fetchDynamicModels } from "./models.js";
 import type { DynamicModelEntry } from "./models.js";
 import { isAuthenticated, findQoderCLI } from "./auth.js";
@@ -129,7 +128,7 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
     },
 
     tool: {
-      qoder_usage: tool({
+      qoder_usage: {
         description:
           "Show Qoder account usage and quota (live), plus accumulated session cost and token totals from the local ledger.",
         args: {},
@@ -156,7 +155,7 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
 
           return { title: "Qoder Usage", output: lines.join("\n") };
         },
-      }),
+      },
     },
   };
 };

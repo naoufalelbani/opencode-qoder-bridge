@@ -20,7 +20,9 @@ A ground-up rewrite focused on reliability, performance, and first-class usage/c
 
 ## Prerequisites
 
-1. Install and log in to the Qoder CLI:
+1. Use Node.js 22.18 or newer.
+
+2. Install and log in to the Qoder CLI:
 
    ```bash
    qoder login
@@ -28,7 +30,7 @@ A ground-up rewrite focused on reliability, performance, and first-class usage/c
 
    Credentials are stored under `~/.qoder/.auth/user`.
 
-2. Install opencode:
+3. Install opencode:
 
    ```bash
    npm install -g opencode-ai
@@ -114,16 +116,16 @@ returned by a live query on **2026-07-25**:
 
 | Model ID | Name | Credit multiplier | Vision | Reasoning | Max input | Max output |
 |----------|------|-------------------|--------|-----------|-----------|------------|
-| `auto` | Auto | 1.00x | ✓ | ✗ | 200K | 32K |
+| `auto` | Auto | 1.00x | ✓ | ✗ | 180K | 32K |
 | `ultimate` | Ultimate | 0.80x | ✓ | ✓ | 1M | 32K |
 | `performance` | Performance | 1.10x | ✓ | ✗ | 1M | 32K |
-| `efficient` | Efficient | 0.30x | ✓ | ✗ | 200K | 32K |
-| `lite` | Lite | 0.00x | ✗ | ✗ | 200K | 32K |
-| `cmodel` | Cantus | 1.60x | ✓ | ✓ | 200K | 32K |
-| `qmodel_preview` | Qwen3.8-Max-Preview | 0.01x promo | ✓ | ✓ | 200K | 32K |
+| `efficient` | Efficient | 0.30x | ✓ | ✗ | 180K | 32K |
+| `lite` | Lite | 0.00x | ✗ | ✗ | 180K | 32K |
+| `cmodel` | Cantus | 1.60x | ✓ | ✓ | 180K | 32K |
+| `qmodel_preview` | Qwen3.8-Max-Preview | 0.01x promo | ✓ | ✓ | 180K | 32K |
 | `qmodel_latest` | Qwen3.7-Max | 0.10x promo | ✓ | ✗ | 1M | 32K |
 | `qmodel` | Qwen3.7-Plus | 0.04x promo | ✓ | ✗ | 1M | 32K |
-| `kmodel_latest` | Kimi-K3 | 0.80x | ✓ | ✗ | 200K | 32K |
+| `kmodel_latest` | Kimi-K3 | 0.80x | ✓ | ✗ | 180K | 32K |
 | `kmodel` | Kimi-K2.7-Code | 0.30x | ✓ | ✗ | 256K | 32K |
 | `gm51model` | GLM-5.2 | 0.50x promo | ✓ | ✓ | 1M | 32K |
 | `dmodel` | DeepSeek-V4-Pro | 0.50x | ✓ | ✓ | 1M | 32K |
@@ -178,6 +180,7 @@ Report suspected vulnerabilities privately as described in
 private prompt content in reports.
 
 Maintainer release instructions are in [RELEASING.md](./RELEASING.md).
+Release history is recorded in [CHANGELOG.md](./CHANGELOG.md).
 
 ## License
 
