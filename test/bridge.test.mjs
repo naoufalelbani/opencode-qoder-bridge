@@ -468,12 +468,12 @@ describe("opencode.json integration", () => {
   test("plugin field is a valid array", async () => {
     const fs = await import("node:fs");
     const raw = fs.readFileSync(
-      new URL("../../../opencode.json", import.meta.url),
+      new URL("./fixtures/opencode.json", import.meta.url),
       "utf8"
     );
     const config = JSON.parse(raw);
     assert.ok(Array.isArray(config.plugin), "plugin must be an array");
-    assert.ok(config.plugin.length > 0, "plugin must not be empty");
+    assert.deepEqual(config.plugin, ["opencode-qoder-bridge"]);
   });
 });
 
