@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { query, qodercliAuth } from "@qoder-ai/qoder-agent-sdk";
+import { query } from "@qoder-ai/qoder-agent-sdk";
 import { getModel, DEFAULT_MODEL_ID } from "./models.js";
 import { findQoderCLI } from "./auth.js";
-import { buildPromptString, buildPromptIterable, promptHasImage } from "./prompt-builder.js";
+import { buildPromptString, buildPromptIterable, latestPrompt, promptHasImage } from "./prompt-builder.js";
 import { normalizeToolName, normalizeToolInputString } from "./tool-normalizer.js";
 import { recordTurn } from "./cost.js";
+import { ensureQoderSession, getQoderSession } from "./session-store.js";
+import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
 function isRecord(v) {
     return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -86,15 +88,23 @@ export class QoderLanguageModel {
     }
     async doStream(options) {
         const cli = findQoderCLI();
-        if (!cli) {
+        if (!cli && !hasQoderPAT()) {
             throw new Error("qodercli not found. Install Qoder CLI first: https://docs.qoder.com/cli");
         }
         const model = getModel(this.modelId) ?? getModel(DEFAULT_MODEL_ID);
-        const sessionId = randomUUID();
+        const sessionKey = this.bridgeOptions.sessionKey ?? this.bridgeOptions.sessionId;
+        const persisted = this.bridgeOptions.sessionPersistence && sessionKey
+            ? await getQoderSession(sessionKey)
+            : null;
+        const sessionId = this.bridgeOptions.sessionId ?? persisted?.qoderSessionId ?? randomUUID();
+        const shouldResume = Boolean(this.bridgeOptions.sessionId || persisted);
         const promptMessages = options.prompt;
-        const prompt = promptHasImage(promptMessages)
-            ? buildPromptIterable(promptMessages, model.limit.context, sessionId)
-            : buildPromptString(promptMessages, model.limit.context);
+        const promptInput = shouldResume
+            ? latestPrompt(promptMessages)
+            : promptMessages;
+        const prompt = promptHasImage(promptInput)
+            ? buildPromptIterable(promptInput, model.limit.context, sessionId)
+            : buildPromptString(promptInput, model.limit.context);
         const functionToolNames = new Set((options.tools ?? [])
             .filter((t) => t.type === "function")
             .map((t) => normalizeToolName(t.name)));
@@ -119,7 +129,7 @@ export class QoderLanguageModel {
             else
                 options.abortSignal.addEventListener("abort", markExternal, { once: true });
         }
-        const qoderOptions = this.buildQueryOptions(cli, sessionId, abortController);
+        const qoderOptions = this.buildQueryOptions(cli, sessionId, abortController, shouldResume);
         const stream = new ReadableStream({
             cancel: markExternal,
             start: async (controller) => {
@@ -142,6 +152,9 @@ export class QoderLanguageModel {
                 controller.enqueue({ type: "stream-start", warnings: [] });
                 try {
                     qoderQuery = query({ prompt, options: qoderOptions });
+                    if (this.bridgeOptions.sessionPersistence && sessionKey) {
+                        await ensureQoderSession(sessionKey, sessionId, process.cwd());
+                    }
                     for await (const msg of qoderQuery) {
                         handleSdkMessage(msg, state);
                         if (state.finished)
@@ -169,18 +182,30 @@ export class QoderLanguageModel {
         });
         return { stream };
     }
-    buildQueryOptions(cli, sessionId, abortController) {
+    buildQueryOptions(cli, sessionId, abortController, shouldResume) {
+        const sessionKey = this.bridgeOptions.sessionKey ?? this.bridgeOptions.sessionId;
+        const permissionMode = this.bridgeOptions.permissionMode ?? "default";
         const opts = {
-            auth: qodercliAuth(),
+            auth: qoderAuth(),
             model: this.modelId,
-            pathToQoderCLIExecutable: cli,
-            allowDangerouslySkipPermissions: true,
-            permissionMode: "bypassPermissions",
+            allowDangerouslySkipPermissions: this.bridgeOptions.allowDangerouslySkipPermissions
+                ?? (permissionMode === "bypassPermissions" ? true : undefined),
+            permissionMode,
             includePartialMessages: true,
             sessionId,
             cwd: process.cwd(),
             abortController,
         };
+        if (cli)
+            opts.pathToQoderCLIExecutable = cli;
+        if ((this.bridgeOptions.sessionId || (this.bridgeOptions.sessionPersistence && sessionKey)) && shouldResume) {
+            opts.resume = sessionId;
+            opts.persistSession = true;
+        }
+        if (this.bridgeOptions.allowedTools)
+            opts.allowedTools = this.bridgeOptions.allowedTools;
+        if (this.bridgeOptions.disallowedTools)
+            opts.disallowedTools = this.bridgeOptions.disallowedTools;
         const mcpServers = this.bridgeOptions.mcpServers;
         if (mcpServers && Object.keys(mcpServers).length > 0) {
             opts.mcpServers = mcpServers;

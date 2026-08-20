@@ -23,5 +23,7 @@ export interface DynamicModelEntry {
         output: string[];
     };
 }
-export declare function fetchDynamicModels(): Promise<DynamicModelEntry[] | null>;
+export declare function listModels(): QoderModelDef[];
+export declare function getCachedDynamicModels(): DynamicModelEntry[] | null;
+export declare function fetchDynamicModels(force?: boolean): Promise<DynamicModelEntry[] | null>;
 //# sourceMappingURL=models.d.ts.map

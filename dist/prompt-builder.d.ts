@@ -23,6 +23,8 @@ export type SdkUserMessage = {
         content: Array<TextBlock | ImageBlock>;
     };
 };
+/** Return only the newest turn when the SDK is resuming an existing session. */
+export declare function latestPrompt(prompt: PromptMessage[]): PromptMessage[];
 export declare function promptHasImage(prompt: PromptMessage[]): boolean;
 export declare function buildPromptString(prompt: PromptMessage[], contextWindow: number): string;
 export declare function buildPromptIterable(prompt: PromptMessage[], contextWindow: number, sessionId: string): AsyncGenerator<SdkUserMessage>;

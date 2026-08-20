@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-08-20
+
+### Security
+
+- Changed the default Qoder permission mode from `bypassPermissions` to the
+  SDK's safer `default` mode.
+- Updated transitive MCP, URL, and glob dependencies; `npm audit` is clean.
+- Added atomic, mode-restricted persistent session storage.
+
+### Added
+
+- Opt-in Qoder session persistence and resume support.
+- `qoder_session_reset` for clearing a configured persisted session.
+- Authenticated opt-in end-to-end testing with `QODER_E2E=1`.
+- Deterministic session-store and SDK option-policy tests.
+- Direct `QODER_PERSONAL_ACCESS_TOKEN` authentication with CLI fallback.
+- Cached, background-refreshed model discovery and `/qoder-models` inspection.
+
 ## [0.1.1] - 2026-07-25
 
 ### Security
@@ -47,3 +65,4 @@ also verified with an in-process MCP transport.
 
 [0.1.1]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/naoufalelbani/opencode-qoder-bridge/releases/tag/v0.1.0
+[0.1.2]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.1...v0.1.2

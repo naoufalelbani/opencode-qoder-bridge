@@ -37,6 +37,21 @@ describe("provider", () => {
     const lm = createQoderProvider(opts).languageModel("auto");
     assert.deepEqual(lm.bridgeOptions, opts);
   });
+
+  test("supports PAT authentication through the SDK", async () => {
+    const old = process.env.QODER_PERSONAL_ACCESS_TOKEN;
+    process.env.QODER_PERSONAL_ACCESS_TOKEN = "pt-test-only";
+    try {
+      const { qoderAuth } = await import(DIST + "sdk-auth.js");
+      assert.deepEqual(qoderAuth(), {
+        type: "accessToken",
+        accessToken: { envVar: "QODER_PERSONAL_ACCESS_TOKEN" },
+      });
+    } finally {
+      if (old === undefined) delete process.env.QODER_PERSONAL_ACCESS_TOKEN;
+      else process.env.QODER_PERSONAL_ACCESS_TOKEN = old;
+    }
+  });
 });
 
 describe("language-model", () => {
@@ -56,6 +71,26 @@ describe("language-model", () => {
     const { QoderLanguageModel } = await import(DIST + "language-model.js");
     const lm = new QoderLanguageModel("auto");
     assert.deepEqual(lm.supportedUrls, {});
+  });
+
+  test("maps session and permission options to SDK options", async () => {
+    const { QoderLanguageModel } = await import(DIST + "language-model.js");
+    const lm = new QoderLanguageModel("auto", {
+      sessionPersistence: true,
+      sessionKey: "test-session",
+      permissionMode: "default",
+      allowDangerouslySkipPermissions: false,
+      allowedTools: ["Read"],
+      disallowedTools: ["Bash"],
+    });
+    const options = lm.buildQueryOptions("qodercli", "session-id", new AbortController(), true);
+    assert.equal(options.sessionId, "session-id");
+    assert.equal(options.resume, "session-id");
+    assert.equal(options.persistSession, true);
+    assert.equal(options.permissionMode, "default");
+    assert.equal(options.allowDangerouslySkipPermissions, false);
+    assert.deepEqual(options.allowedTools, ["Read"]);
+    assert.deepEqual(options.disallowedTools, ["Bash"]);
   });
 });
 
@@ -442,6 +477,12 @@ describe("plugin config hook", () => {
     assert.ok(instance.tool.qoder_usage);
   });
 
+  test("tool section has qoder_models", async () => {
+    const plugin = (await import(DIST + "index.js")).default;
+    const instance = await plugin();
+    assert.ok(instance.tool.qoder_models);
+  });
+
   test("registers /qoder-usage without replacing a user override", async () => {
     const plugin = (await import(DIST + "index.js")).default;
     const instance = await plugin();
@@ -557,5 +598,14 @@ describe("cost ledger", () => {
     assert.equal(typeof s.turnCount, "number");
     assert.ok(typeof s.byModel === "object");
     assert.ok(Array.isArray(s.recent));
+  });
+});
+
+describe("session store", () => {
+  test("exports session persistence operations", async () => {
+    const mod = await import(DIST + "session-store.js");
+    assert.equal(typeof mod.getQoderSession, "function");
+    assert.equal(typeof mod.ensureQoderSession, "function");
+    assert.equal(typeof mod.deleteQoderSession, "function");
   });
 });

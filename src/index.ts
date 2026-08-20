@@ -1,15 +1,18 @@
 import type { Hooks, Config, Plugin } from "@opencode-ai/plugin";
-import { FALLBACK_MODELS, fetchDynamicModels } from "./models.js";
+import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels, listModels } from "./models.js";
 import type { DynamicModelEntry } from "./models.js";
-import { isAuthenticated, findQoderCLI } from "./auth.js";
+import { findQoderCLI } from "./auth.js";
+import { hasQoderCredential, hasQoderPAT, QODER_PAT_ENV } from "./sdk-auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { getLiveUsage, formatUsageReport } from "./usage.js";
 import { summarize, formatCost } from "./cost.js";
 import { ensureTuiRegistered } from "./tui-register.js";
+import { deleteQoderSession } from "./session-store.js";
 
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
 const USAGE_COMMAND = new URL("../bin/usage.mjs", import.meta.url);
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+let configuredSessionKey: string | undefined;
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -76,18 +79,25 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
       };
 
       const builtinModels: Record<string, unknown> = {};
-      const dynamic = await fetchDynamicModels();
+      // Use cached/fallback models immediately. Refresh the catalog in the
+      // background so OpenCode startup never waits on network/auth discovery.
+      const dynamic = getCachedDynamicModels();
       if (dynamic) {
         for (const m of dynamic) {
           if (!UNSAFE_KEYS.has(m.id)) builtinModels[m.id] = buildDynamicEntry(m);
         }
-      } else {
-        for (const m of FALLBACK_MODELS) builtinModels[m.id] = buildFallbackEntry(m);
       }
+      // Keep the provider usable when the live catalog is partial or offline.
+      // Dynamic entries remain authoritative for IDs returned by the SDK.
+      for (const m of FALLBACK_MODELS) {
+        if (!UNSAFE_KEYS.has(m.id) && !builtinModels[m.id]) builtinModels[m.id] = buildFallbackEntry(m);
+      }
+      void fetchDynamicModels(true).catch(() => {});
       const mergedModels = { ...builtinModels, ...(existing.models ?? {}) };
 
       const bridgedMcp = bridgeMcpServers((config as Record<string, unknown>).mcp);
       const mergedOptions: Record<string, unknown> = { ...(existing.options ?? {}) };
+      configuredSessionKey = typeof mergedOptions.sessionKey === "string" ? mergedOptions.sessionKey : undefined;
       if (Object.keys(bridgedMcp).length > 0) {
         mergedOptions.mcpServers = {
           ...((existing.options as Record<string, any>)?.mcpServers ?? {}),
@@ -112,13 +122,13 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
       methods: [
         {
           type: "api",
-          label: "Open Qoder and log in, or run `qoder login` in your terminal",
+          label: `Use ${QODER_PAT_ENV} or run qoder login in your terminal`,
           prompts: [],
           async authorize() {
-            if (!findQoderCLI()) {
+            if (!findQoderCLI() && !hasQoderPAT()) {
               return { type: "failed" };
             }
-            if (isAuthenticated()) {
+            if (hasQoderCredential()) {
               return { type: "success", key: "qoder-cli-auth" };
             }
             return { type: "failed" };
@@ -154,6 +164,31 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
           }
 
           return { title: "Qoder Usage", output: lines.join("\n") };
+        },
+      },
+      qoder_models: {
+        description: "List known Qoder models, capabilities, limits, and price multipliers.",
+        args: {},
+        async execute() {
+          const models = listModels();
+          const lines = ["Qoder Models"];
+          for (const model of models) {
+            lines.push(`  ${model.id}: ${model.name}`);
+            lines.push(`    context ${model.limit.context}, output ${model.limit.output}, price ${model.multiplier}x`);
+            lines.push(`    vision ${model.attachment ? "yes" : "no"}, reasoning ${model.reasoning ? "yes" : "no"}`);
+          }
+          return { title: "Qoder Models", output: lines.join("\n") };
+        },
+      },
+      qoder_session_reset: {
+        description: "Forget the persisted Qoder session mapping for the configured session key.",
+        args: {},
+        async execute() {
+          if (!configuredSessionKey) {
+            return { title: "Qoder Session", output: "No sessionKey is configured; no persisted session was reset." };
+          }
+          await deleteQoderSession(configuredSessionKey);
+          return { title: "Qoder Session", output: `Reset persisted Qoder session: ${configuredSessionKey}` };
         },
       },
     },

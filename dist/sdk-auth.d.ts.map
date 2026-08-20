@@ -1,0 +1,1 @@
+{"version":3,"file":"sdk-auth.d.ts","sourceRoot":"","sources":["../src/sdk-auth.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,2BAA2B,CAAC;AAG7D,eAAO,MAAM,aAAa,gCAAgC,CAAC;AAE3D,wBAAgB,WAAW,IAAI,OAAO,CAErC;AAED,kFAAkF;AAClF,wBAAgB,SAAS,IAAI,WAAW,CAIvC;AAED,wBAAgB,kBAAkB,IAAI,OAAO,CAE5C"}

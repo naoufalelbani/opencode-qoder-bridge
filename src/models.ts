@@ -1,8 +1,12 @@
-import { query, qodercliAuth } from "@qoder-ai/qoder-agent-sdk";
-import type { ModelInfo } from "@qoder-ai/qoder-agent-sdk";
+import { query, type ModelInfo } from "@qoder-ai/qoder-agent-sdk";
 import type { QoderModelDef } from "./types.js";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
+import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const CONTEXT = 200_000;
 const OUTPUT = 32_000;
@@ -39,6 +43,25 @@ export const FALLBACK_MODELS: QoderModelDef[] = [
 export const DEFAULT_MODEL_ID = "auto";
 
 const MODEL_INDEX = new Map(FALLBACK_MODELS.map((m) => [m.id, m]));
+const MODEL_CACHE_FILE = join(homedir(), ".config", "opencode-qoder-bridge", "models.json");
+
+function addToIndex(m: DynamicModelEntry): void {
+  MODEL_INDEX.set(m.id, {
+    id: m.id,
+    name: m.name,
+    multiplier: m.cost.input,
+    attachment: m.attachment,
+    reasoning: m.reasoning,
+    toolCall: m.toolCall,
+    cost: {
+      input: m.cost.input,
+      output: m.cost.output,
+      cacheRead: m.cost.cache_read,
+      cacheWrite: m.cost.cache_write,
+    },
+    limit: m.limit,
+  });
+}
 
 export function getModel(id: string): QoderModelDef | undefined {
   return MODEL_INDEX.get(id);
@@ -80,13 +103,40 @@ function mapModelInfo(m: ModelInfo): DynamicModelEntry {
   };
 }
 
-let cachedDynamicModels: DynamicModelEntry[] | null = null;
+let cachedDynamicModels: DynamicModelEntry[] | null = loadCachedModels();
 
-export async function fetchDynamicModels(): Promise<DynamicModelEntry[] | null> {
-  if (cachedDynamicModels) return cachedDynamicModels;
+function loadCachedModels(): DynamicModelEntry[] | null {
+  try {
+    if (!existsSync(MODEL_CACHE_FILE)) return null;
+    const parsed = JSON.parse(readFileSync(MODEL_CACHE_FILE, "utf8")) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const models = parsed.filter((m): m is DynamicModelEntry => {
+      if (!m || typeof m !== "object") return false;
+      const x = m as Record<string, unknown>;
+      return typeof x.id === "string" && typeof x.name === "string" && typeof x.attachment === "boolean"
+        && typeof x.reasoning === "boolean" && typeof x.toolCall === "boolean" && typeof x.limit === "object"
+        && typeof x.cost === "object" && typeof x.modalities === "object";
+    });
+    for (const model of models) addToIndex(model);
+    return models.length > 0 ? models : null;
+  } catch {
+    return null;
+  }
+}
+
+export function listModels(): QoderModelDef[] {
+  return [...MODEL_INDEX.values()].map((m) => ({ ...m, cost: { ...m.cost }, limit: { ...m.limit } }));
+}
+
+export function getCachedDynamicModels(): DynamicModelEntry[] | null {
+  return cachedDynamicModels;
+}
+
+export async function fetchDynamicModels(force = false): Promise<DynamicModelEntry[] | null> {
+  if (cachedDynamicModels && !force) return cachedDynamicModels;
 
   const cli = findQoderCLI();
-  if (!cli) return null;
+    if (!cli && !hasQoderPAT()) return null;
 
   let q: ReturnType<typeof query> | undefined;
   const abortController = new AbortController();
@@ -94,34 +144,19 @@ export async function fetchDynamicModels(): Promise<DynamicModelEntry[] | null> 
     q = query({
       prompt: idlePrompt(abortController.signal),
       options: {
-        auth: qodercliAuth(),
+        auth: qoderAuth(),
         model: "auto",
-        pathToQoderCLIExecutable: cli,
         abortController,
+        ...(cli ? { pathToQoderCLIExecutable: cli } : {}),
       },
     });
     const models = await q.getAvailableModels({ fetchStrategy: "cache" });
     if (!models || models.length === 0) return null;
     const enabled = models.filter((m) => m.isEnabled !== false);
     cachedDynamicModels = enabled.map(mapModelInfo);
-    for (const m of enabled) {
-      const factor = m.priceFactor ?? 1.0;
-      MODEL_INDEX.set(m.value, {
-        id: m.value,
-        name: m.displayName,
-        multiplier: factor,
-        attachment: m.isVl ?? true,
-        reasoning: m.isReasoning ?? false,
-        toolCall: true,
-        cost: {
-          input: factor,
-          output: factor,
-          cacheRead: Number((factor * 0.1).toFixed(4)),
-          cacheWrite: factor,
-        },
-        limit: { context: m.maxInputTokens ?? CONTEXT, output: m.maxOutputTokens ?? OUTPUT },
-      });
-    }
+    for (const m of cachedDynamicModels) addToIndex(m);
+    try { mkdirSync(join(homedir(), ".config", "opencode-qoder-bridge"), { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
+    void writeFile(MODEL_CACHE_FILE, JSON.stringify(cachedDynamicModels, null, 2) + "\n", { mode: 0o600 }).catch(() => {});
     return cachedDynamicModels;
   } catch {
     return null;

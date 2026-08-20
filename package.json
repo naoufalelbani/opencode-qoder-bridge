@@ -1,6 +1,6 @@
 {
   "name": "opencode-qoder-bridge",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "opencode plugin that bridges Qoder AI models via @qoder-ai/qoder-agent-sdk",
   "author": "Naoufal El Bani",
   "type": "module",
@@ -49,20 +49,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test test/bridge.test.mjs",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:e2e": "npm run build && node --test test/e2e.test.mjs",
     "audit": "npm audit --audit-level=low",
     "check": "npm run typecheck && npm test && npm run audit",
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@qoder-ai/qoder-agent-sdk": "^1.0.15",
+    "@qoder-ai/qoder-agent-sdk": "1.0.25",
     "jsonc-parser": "^3.3.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "^3.0.14",
-    "@opencode-ai/plugin": "1.18.5",
-    "@opentui/solid": "0.4.5",
+    "@opencode-ai/plugin": "1.18.19",
+    "@opentui/solid": "0.5.4",
     "@types/node": "^22.10.0",
     "solid-js": "1.9.12",
     "typescript": "^5.7.0"
@@ -82,12 +83,15 @@
   "overrides": {
     "@babel/core": "8.0.1",
     "@hono/node-server": "2.0.11",
-    "brace-expansion": "5.0.8",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "brace-expansion": "5.0.9",
+    "fast-uri": "4.1.2",
     "glob": "13.0.6",
-    "minimatch": "10.2.5"
+    "hono": "4.13.3",
+    "minimatch": "10.2.6"
   },
   "engines": {
-    "node": "^22.18.0 || >=24.11.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "keywords": [
     "opencode",

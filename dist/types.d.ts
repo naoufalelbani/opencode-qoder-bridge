@@ -24,6 +24,20 @@ export interface QoderBridgeOptions {
     extraArgs?: Record<string, string | null>;
     /** Bridged MCP server configs keyed by server name. */
     mcpServers?: Record<string, unknown>;
+    /** Opt into resuming a persisted Qoder session. */
+    sessionPersistence?: boolean;
+    /** Stable key used to map this provider to a Qoder session. */
+    sessionKey?: string;
+    /** Explicit Qoder session ID, useful for integrations that own session state. */
+    sessionId?: string;
+    /** SDK permission policy. Defaults to the safe SDK policy. */
+    permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
+    /** Whether the SDK may skip permission checks when bypassPermissions is selected. */
+    allowDangerouslySkipPermissions?: boolean;
+    /** Optional SDK tool allowlist. */
+    allowedTools?: string[];
+    /** Optional SDK tool denylist. */
+    disallowedTools?: string[];
 }
 export interface ModelCost {
     input: number;

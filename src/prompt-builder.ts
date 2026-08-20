@@ -205,6 +205,12 @@ function lastUserIndex(prompt: PromptMessage[]): number {
   return -1;
 }
 
+/** Return only the newest turn when the SDK is resuming an existing session. */
+export function latestPrompt(prompt: PromptMessage[]): PromptMessage[] {
+  const idx = lastUserIndex(prompt);
+  return idx >= 0 ? prompt.slice(idx) : prompt.slice(-1);
+}
+
 function trimToBudget(prompt: PromptMessage[], contextWindow: number): PromptMessage[] {
   const budget = Math.floor(contextWindow * BUDGET_RATIO);
   if (prompt.length <= 1) return prompt;
