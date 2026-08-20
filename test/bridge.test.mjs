@@ -483,25 +483,13 @@ describe("plugin config hook", () => {
     assert.ok(instance.tool.qoder_models);
   });
 
-  test("registers /qoder-usage without replacing a user override", async () => {
+  test("does not register a model-backed quota command", async () => {
     const plugin = (await import(DIST + "index.js")).default;
     const instance = await plugin();
 
     const config = {};
     await instance.config(config);
-    assert.equal(config.command["qoder-usage"].model, "qoder/lite");
-    assert.match(config.command["qoder-usage"].template, /bin\/usage\.mjs/);
-    assert.match(config.command["qoder-usage"].template, /!\`node /);
-
-    const custom = {
-      command: {
-        "qoder-usage": {
-          template: "my custom usage command",
-        },
-      },
-    };
-    await instance.config(custom);
-    assert.equal(custom.command["qoder-usage"].template, "my custom usage command");
+    assert.equal(config.command, undefined);
   });
 });
 

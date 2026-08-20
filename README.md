@@ -82,8 +82,7 @@ opencode -m qoder/performance               # interactive
 
 ### Usage & cost
 
-Run `/qoder-usage` in OpenCode (it uses the free `qoder/lite` model), run
-`qoder-usage` in a terminal for the same live report, or add the statusline
+Run `qoder-usage` in a terminal for the live report, or add the statusline
 binary to your OpenCode statusline config:
 
 ```bash
@@ -119,8 +118,14 @@ The ledger accumulates across sessions. Delete `~/.config/opencode-qoder-bridge/
 ## Models
 
 The bridge discovers the available catalog at startup through the SDK's
-`getAvailableModels()` API. The following is the complete enabled catalog
-returned by a live query on **2026-07-25**:
+`getAvailableModels()` API. Availability is account-, region-, rollout-, and
+SDK-version-dependent. A live query on **2026-08-20** returned:
+
+| Model ID | Name | Credit multiplier | Vision | Reasoning | Max input | Max output |
+|----------|------|-------------------|--------|-----------|-----------|------------|
+
+The following are known or historical model IDs. Some may be obsolete or
+unavailable for a particular account and are not an availability guarantee:
 
 | Model ID | Name | Credit multiplier | Vision | Reasoning | Max input | Max output |
 |----------|------|-------------------|--------|-----------|-----------|------------|
@@ -131,6 +136,7 @@ returned by a live query on **2026-07-25**:
 | `lite` | Lite | 0.00x | ✗ | ✗ | 180K | 32K |
 | `cmodel` | Cantus | 1.60x | ✓ | ✓ | 180K | 32K |
 | `qmodel_preview` | Qwen3.8-Max-Preview | 0.01x promo | ✓ | ✓ | 180K | 32K |
+| `qmodel_38max` | Qwen3.8-Max | 0.25x | ✓ | ✓ | 180K | 32K |
 | `qmodel_latest` | Qwen3.7-Max | 0.10x promo | ✓ | ✗ | 1M | 32K |
 | `qmodel` | Qwen3.7-Plus | 0.04x promo | ✓ | ✗ | 1M | 32K |
 | `kmodel_latest` | Kimi-K3 | 0.80x | ✓ | ✗ | 180K | 32K |
@@ -145,9 +151,10 @@ availability by account, plan, CLI version, or staged rollout. Promotional
 multipliers are time-dependent; the SDK's current `priceFactor` is
 authoritative. Restart OpenCode to refresh the bridge's in-process model cache.
 
-Run `/qoder-models` inside OpenCode to inspect known models, capabilities,
-context limits, and price multipliers. Model discovery is cached and refreshed
-in the background so network or authentication latency does not block startup.
+Run `opencode models qoder` to inspect the models currently registered with
+OpenCode. The `qoder_models` tool also exposes capabilities, context limits,
+and price multipliers to the agent. Model discovery is cached and refreshed in
+the background so network or authentication latency does not block startup.
 
 ## Configuration
 

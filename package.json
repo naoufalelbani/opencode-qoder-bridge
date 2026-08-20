@@ -1,6 +1,6 @@
 {
   "name": "opencode-qoder-bridge",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "opencode plugin that bridges Qoder AI models via @qoder-ai/qoder-agent-sdk",
   "author": "Naoufal El Bani",
   "type": "module",
@@ -58,6 +58,7 @@
   "dependencies": {
     "@qoder-ai/qoder-agent-sdk": "1.0.25",
     "jsonc-parser": "^3.3.1",
+    "opencode-qoder-bridge": "^0.1.2",
     "zod": "^3.25.0"
   },
   "devDependencies": {
@@ -99,5 +100,9 @@
     "qoder",
     "ai",
     "llm"
-  ]
+  ],
+  "allowScripts": {
+    "@qoder-ai/qoder-agent-sdk@1.0.25": true,
+    "msgpackr-extract@3.0.4": true
+  }
 }

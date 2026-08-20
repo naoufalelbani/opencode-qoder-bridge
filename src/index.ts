@@ -10,13 +10,8 @@ import { ensureTuiRegistered } from "./tui-register.js";
 import { deleteQoderSession } from "./session-store.js";
 
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
-const USAGE_COMMAND = new URL("../bin/usage.mjs", import.meta.url);
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 let configuredSessionKey: string | undefined;
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 
 function buildFallbackEntry(m: (typeof FALLBACK_MODELS)[number]) {
   return {
@@ -68,15 +63,6 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
     async config(config: Config) {
       config.provider ??= {};
       const existing = (config.provider.qoder ?? {}) as Record<string, any>;
-
-      config.command ??= {};
-      config.command["qoder-usage"] ??= {
-        template:
-          "This is output from the local qoder-usage CLI. Echo it in a fenced text block without interpreting it:\n\n"
-          + `!\`node ${shellQuote(USAGE_COMMAND.pathname)}\``,
-        description: "Show live Qoder credit quota and local usage totals",
-        model: "qoder/lite",
-      };
 
       const builtinModels: Record<string, unknown> = {};
       // Use cached/fallback models immediately. Refresh the catalog in the
