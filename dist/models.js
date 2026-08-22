@@ -56,6 +56,14 @@ function addToIndex(m) {
 export function getModel(id) {
     return MODEL_INDEX.get(id);
 }
+/**
+ * Keep catalog entries that are usable model ids. Disabled entries are
+ * dropped; anything else (BYOK, tagged, scene-filtered) stays so the bridge
+ * never hides a model the server actually serves.
+ */
+export function selectEnabledModels(models) {
+    return models.filter((m) => !!m && typeof m.value === "string" && m.value.length > 0 && m.isEnabled !== false);
+}
 function mapModelInfo(m) {
     const factor = m.priceFactor ?? 1.0;
     const context = m.maxInputTokens ?? CONTEXT;
@@ -138,6 +146,9 @@ async function doFetchDynamicModels() {
         return null;
     let q;
     const abortController = new AbortController();
+    const sceneEnv = process.env.QODER_SCENE
+        ? { env: { QODER_SCENE: process.env.QODER_SCENE } }
+        : {};
     try {
         q = query({
             prompt: idlePrompt(abortController.signal),
@@ -146,12 +157,21 @@ async function doFetchDynamicModels() {
                 model: "auto",
                 abortController,
                 ...(cli ? { pathToQoderCLIExecutable: cli } : {}),
+                ...sceneEnv,
             },
         });
-        const models = await q.getAvailableModels({ fetchStrategy: "cache" });
-        if (!models || models.length === 0)
+        // "live" forces a server refresh inside the CLI and falls back to the
+        // CLI's cached catalog when the server returns nothing. The previous
+        // "cache" strategy could serve an empty or stale subset, which hid
+        // models until a lucky refresh.
+        const models = await q.getAvailableModels({ fetchStrategy: "live" });
+        if (!Array.isArray(models))
             return null;
-        const enabled = models.filter((m) => m.isEnabled !== false);
+        const enabled = selectEnabledModels(models);
+        debug(`Model catalog: ${enabled.length} usable of ${models.length} reported`
+            + (enabled.length === 0 ? "" : ` (${enabled.map((m) => m.value).join(", ")})`));
+        if (enabled.length === 0)
+            return null;
         cachedDynamicModels = enabled.map(mapModelInfo);
         for (const m of cachedDynamicModels)
             addToIndex(m);

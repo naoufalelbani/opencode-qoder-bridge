@@ -225,6 +225,15 @@ host environment is trusted.
 | Auth prompt at startup | Run `qoder login`, then restart opencode |
 | `qodercli not found` | Install the Qoder CLI; ensure `qodercli` is on PATH or under `~/.qoder/` |
 | Model not found | Verify the model ID matches the table above |
+| Missing models in the model list | Run `/qoder_models`; the bridge refreshes the live catalog at every startup and falls back to the last cached catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching opencode (or via provider option `env`) |
+
+### How model discovery works
+
+At startup the bridge immediately exposes cached/built-in models, then
+refreshes the live catalog from Qoder (`fetchStrategy: "live"` — the CLI
+re-queries the server and falls back to its local cache if the server returns
+nothing). Discovered models override built-ins with the same ID; a failed
+refresh never removes previously known models.
 
 ## Development
 

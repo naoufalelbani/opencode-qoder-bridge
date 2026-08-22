@@ -39,6 +39,12 @@ export interface QoderBridgeOptions {
   allowedTools?: string[];
   /** Optional SDK tool denylist. */
   disallowedTools?: string[];
+  /**
+   * Extra environment variables for the qodercli child process. CLI-boot
+   * catalog filters like QODER_SCENE must be set here (or in the host
+   * environment) to take effect.
+   */
+  env?: Record<string, string | undefined>;
 }
 
 export interface ModelCost {

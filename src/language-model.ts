@@ -274,6 +274,7 @@ export class QoderLanguageModel implements LanguageModelV3 {
     };
 
     if (cli) opts.pathToQoderCLIExecutable = cli;
+    if (this.bridgeOptions.env) opts.env = this.bridgeOptions.env;
 
     if ((this.bridgeOptions.sessionId || (this.bridgeOptions.sessionPersistence && sessionKey)) && shouldResume) {
       opts.resume = sessionId;

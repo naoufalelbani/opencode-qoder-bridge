@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.5] - 2026-08-22
+
+### Fixed
+
+- Model discovery now requests the live catalog (`fetchStrategy: "live"`).
+  The previous `"cache"` strategy could serve an empty or stale subset of the
+  account's models, which is why not all available Qoder models were detected.
+  The CLI re-queries the server on every refresh and falls back to its local
+  cache only when the server returns nothing.
+
+### Added
+
+- `QODER_SCENE` set in the host environment is forwarded to the catalog
+  discovery session, and a new provider option `env` passes arbitrary
+  environment variables to the qodercli child process for chat turns.
+- Debug logging for discovery: usable/total entry counts and discovered model
+  IDs are emitted under `QODER_BRIDGE_DEBUG=1`.
+- Documentation for model discovery behavior and scene filtering in the
+  README troubleshooting section.
+
+### Changed
+
+- Catalog selection drops only disabled or malformed entries; BYOK and
+  tagged entries are kept so the bridge never hides a model the server
+  actually serves.
+
 ## [0.1.4] - 2026-08-22
 
 ### Fixed
@@ -118,3 +144,4 @@ also verified with an in-process MCP transport.
 [0.1.2]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.1...v0.1.2
 [0.1.3]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.2...v0.1.3
 [0.1.4]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.3...v0.1.4
+[0.1.5]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.4...v0.1.5

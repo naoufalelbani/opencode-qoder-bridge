@@ -17,6 +17,7 @@ const { isDebugEnabled } = await import(DIST + "logger.js");
 const { handleSdkMessage, QoderLanguageModel } = await import(DIST + "language-model.js");
 const { ensureQoderSession } = await import(DIST + "session-store.js");
 const { buildPromptString } = await import(DIST + "prompt-builder.js");
+const { selectEnabledModels } = await import(DIST + "models.js");
 
 describe("typed errors", () => {
   test("subclasses expose stable codes and names", () => {
@@ -261,6 +262,34 @@ describe("cost ledger crash safety", () => {
     assert.equal(persisted.totalCostUsd, 0.25);
     assert.equal(persisted.totalInputTokens, 11);
     assert.equal(persisted.recent.length, 1);
+  });
+});
+
+describe("model catalog selection", () => {
+  const entry = (value, extra = {}) => ({ value, displayName: value, description: "", ...extra });
+
+  test("keeps enabled, BYOK, and tagged entries; drops disabled and malformed", () => {
+    const kept = selectEnabledModels([
+      entry("auto"),
+      entry("byok-gpt", { source: "user", provider: "openai" }),
+      entry("promo", { tags: ["limited_time_free"] }),
+    ]);
+    assert.deepEqual(kept.map((m) => m.value), ["auto", "byok-gpt", "promo"]);
+
+    const filtered = selectEnabledModels([
+      entry("gone", { isEnabled: false }),
+      null,
+      undefined,
+      { displayName: "no id" },
+      entry("", {}),
+    ]);
+    assert.deepEqual(filtered, []);
+  });
+
+  test("discovery uses the live fetch strategy with cache fallback in the SDK", async () => {
+    const src = await import("node:fs").then((fs) => fs.promises.readFile(DIST + "models.js", "utf8"));
+    assert.match(src, /fetchStrategy:\s*"live"/, "must request live catalog");
+    assert.doesNotMatch(src, /fetchStrategy:\s*"cache"/, "must not serve stale cache as first choice");
   });
 });
 
