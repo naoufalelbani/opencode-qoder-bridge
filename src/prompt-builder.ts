@@ -215,23 +215,33 @@ function trimToBudget(prompt: PromptMessage[], contextWindow: number): PromptMes
   const budget = Math.floor(contextWindow * BUDGET_RATIO);
   if (prompt.length <= 1) return prompt;
 
-  const working = [...prompt];
-  const measure = (msgs: PromptMessage[]) => approxTokens(msgs.map(serializeMessage).join("\n\n"));
+  const serialized = prompt.map((msg) => {
+    const text = serializeMessage(msg);
+    return { msg, text, tokens: approxTokens(text), dropped: false };
+  });
 
+  let remaining = serialized.length;
+  let total = 0;
   let dropped = 0;
-  while (working.length > 1 && measure(working) > budget) {
-    const idx = working.findIndex((m) => m.role !== "system");
-    if (idx === -1) break;
-    working.splice(idx, 1);
+  for (const item of serialized) total += item.tokens;
+
+  for (const item of serialized) {
+    if (remaining <= 1 || total <= budget) break;
+    if (item.msg.role === "system") continue;
+    item.dropped = true;
+    total -= item.tokens;
+    remaining--;
     dropped++;
   }
 
+  const kept = serialized.filter((item) => !item.dropped);
   if (dropped > 0) {
-    const marker: PromptMessage = { role: "system", content: `<truncated_history count="${dropped}" />` };
-    const insertAt = working.findLastIndex((m) => m.role === "system") + 1;
-    working.splice(insertAt, 0, marker);
+    const markerText = `<truncated_history count="${dropped}" />`;
+    const marker: PromptMessage = { role: "system", content: markerText };
+    const insertAt = kept.findLastIndex((m) => m.msg.role === "system") + 1;
+    kept.splice(insertAt, 0, { msg: marker, text: markerText, tokens: approxTokens(markerText), dropped: false });
   }
-  return working;
+  return kept.map((item) => item.msg);
 }
 
 function serializeRange(prompt: PromptMessage[], start: number, end: number): string[] {

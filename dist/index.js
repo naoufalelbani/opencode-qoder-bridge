@@ -6,6 +6,7 @@ import { getLiveUsage, formatUsageReport } from "./usage.js";
 import { summarize, formatCost } from "./cost.js";
 import { ensureTuiRegistered } from "./tui-register.js";
 import { deleteQoderSession } from "./session-store.js";
+import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 let configuredSessionKey;
@@ -43,6 +44,8 @@ function buildDynamicEntry(m) {
 }
 const plugin = async (input) => {
     if (input) {
+        if (isDebugEnabled())
+            debug("Plugin initializing");
         try {
             const result = await ensureTuiRegistered();
             if (result === "added") {
@@ -50,7 +53,7 @@ const plugin = async (input) => {
             }
         }
         catch (error) {
-            console.warn("[opencode-qoder-bridge] Could not register Qoder sidebar:", error);
+            warn("Could not register Qoder sidebar:", error);
         }
     }
     return {
@@ -73,7 +76,9 @@ const plugin = async (input) => {
                 if (!UNSAFE_KEYS.has(m.id) && !builtinModels[m.id])
                     builtinModels[m.id] = buildFallbackEntry(m);
             }
-            void fetchDynamicModels(true).catch(() => { });
+            void fetchDynamicModels(true).catch((error) => {
+                debug("Background model refresh failed:", describeError(error));
+            });
             const mergedModels = { ...builtinModels, ...(existing.models ?? {}) };
             const bridgedMcp = bridgeMcpServers(config.mcp);
             const mergedOptions = { ...(existing.options ?? {}) };
@@ -104,11 +109,13 @@ const plugin = async (input) => {
                     prompts: [],
                     async authorize() {
                         if (!findQoderCLI() && !hasQoderPAT()) {
+                            warn("Authorize failed: qodercli not found on PATH and no", `${QODER_PAT_ENV} is set. Install the CLI (https://docs.qoder.com/cli)`, "or export a personal access token, then retry.");
                             return { type: "failed" };
                         }
                         if (hasQoderCredential()) {
                             return { type: "success", key: "qoder-cli-auth" };
                         }
+                        warn("Authorize failed: no usable Qoder credential found.");
                         return { type: "failed" };
                     },
                 },

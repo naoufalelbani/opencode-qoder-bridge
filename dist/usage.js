@@ -2,6 +2,7 @@ import { query } from "@qoder-ai/qoder-agent-sdk";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
 import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
+import { debug, describeError } from "./logger.js";
 const CACHE_TTL_MS = 60_000;
 let cached = null;
 let cacheExpiry = 0;
@@ -40,7 +41,8 @@ export function getLiveUsage(force = false) {
             }
             return usage;
         }
-        catch {
+        catch (error) {
+            debug("Live usage fetch failed:", describeError(error));
             return cached;
         }
         finally {

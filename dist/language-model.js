@@ -7,6 +7,8 @@ import { normalizeToolName, normalizeToolInputString } from "./tool-normalizer.j
 import { recordTurn } from "./cost.js";
 import { ensureQoderSession, getQoderSession } from "./session-store.js";
 import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
+import { QoderCliNotFoundError, QoderSdkResultError } from "./errors.js";
+import { debug, describeError } from "./logger.js";
 function isRecord(v) {
     return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -60,6 +62,7 @@ export class QoderLanguageModel {
         let reasoning = "";
         let finishReason = makeFinishReason("stop");
         let usage = makeUsage(0, 0, 0, 0);
+        const toolCalls = [];
         for (;;) {
             const { value, done } = await reader.read();
             if (done)
@@ -70,6 +73,14 @@ export class QoderLanguageModel {
                     break;
                 case "reasoning-delta":
                     reasoning += value.delta;
+                    break;
+                case "tool-call":
+                    toolCalls.push({
+                        type: "tool-call",
+                        toolCallId: value.toolCallId,
+                        toolName: value.toolName,
+                        input: value.input,
+                    });
                     break;
                 case "finish":
                     finishReason = value.finishReason;
@@ -84,20 +95,26 @@ export class QoderLanguageModel {
             content.push({ type: "reasoning", text: reasoning });
         if (text)
             content.push({ type: "text", text });
+        content.push(...toolCalls);
         return { content, finishReason, usage, warnings: [] };
     }
     async doStream(options) {
         const cli = findQoderCLI();
         if (!cli && !hasQoderPAT()) {
-            throw new Error("qodercli not found. Install Qoder CLI first: https://docs.qoder.com/cli");
+            throw new QoderCliNotFoundError();
         }
-        const model = getModel(this.modelId) ?? getModel(DEFAULT_MODEL_ID);
+        const resolved = getModel(this.modelId) ?? getModel(DEFAULT_MODEL_ID);
+        if (!getModel(this.modelId)) {
+            debug(`Unknown model id "${this.modelId}"; falling back to "${resolved.id}"`);
+        }
+        const model = resolved;
         const sessionKey = this.bridgeOptions.sessionKey ?? this.bridgeOptions.sessionId;
         const persisted = this.bridgeOptions.sessionPersistence && sessionKey
             ? await getQoderSession(sessionKey)
             : null;
         const sessionId = this.bridgeOptions.sessionId ?? persisted?.qoderSessionId ?? randomUUID();
         const shouldResume = Boolean(this.bridgeOptions.sessionId || persisted);
+        debug(`doStream model=${model.id} sessionId=${sessionId} resume=${shouldResume}`);
         const promptMessages = options.prompt;
         const promptInput = shouldResume
             ? latestPrompt(promptMessages)
@@ -169,9 +186,11 @@ export class QoderLanguageModel {
                 catch (err) {
                     cleanup();
                     if (externallyAborted && !state.finished) {
+                        debug("Stream aborted by caller; closing without finish");
                         controller.close();
                         return;
                     }
+                    debug("Stream failed:", describeError(err));
                     if (!state.finished) {
                         controller.enqueue({ type: "error", error: err instanceof Error ? err : new Error(String(err)) });
                         emitFinish(state, makeUsage(0, 0, 0, 0), makeFinishReason("error"), undefined);
@@ -216,7 +235,7 @@ export class QoderLanguageModel {
         return opts;
     }
 }
-function handleSdkMessage(m, state) {
+export function handleSdkMessage(m, state) {
     const type = m.type;
     if (type === "stream_event") {
         handleStreamEvent(m.event, state);
@@ -362,7 +381,7 @@ function handleResult(m, state) {
     if (isError) {
         const subtype = typeof m.subtype === "string" ? m.subtype : "error_during_execution";
         const errors = Array.isArray(m.errors) ? JSON.stringify(m.errors) : "";
-        controller.enqueue({ type: "error", error: new Error(`Qoder SDK: ${subtype}${errors ? ` | ${errors}` : ""}`) });
+        controller.enqueue({ type: "error", error: new QoderSdkResultError(subtype, errors) });
         emitFinish(state, makeUsage(0, 0, 0, 0), makeFinishReason("error", subtype), undefined);
         return;
     }
@@ -388,6 +407,7 @@ function handleResult(m, state) {
         outputTokens = Math.min(outputTokens, totalTokens);
         inputTokens = totalTokens - outputTokens;
         usageEstimated = true;
+        debug(`Token counters absent; estimated ${inputTokens} in / ${outputTokens} out from context ratio`);
     }
     const costUsd = typeof m.total_cost_usd === "number" ? m.total_cost_usd : 0;
     const hasToolCalls = state.emittedToolCall && state.pendingToolCalls.size > 0;
@@ -407,8 +427,8 @@ function handleResult(m, state) {
             modelUsage: m.modelUsage,
         });
     }
-    catch {
-        /* ledger is best-effort */
+    catch (err) {
+        debug("Cost ledger write skipped:", describeError(err));
     }
     const qoderMeta = {};
     if (typeof m.total_cost_usd === "number")
@@ -419,14 +439,14 @@ function handleResult(m, state) {
         qoderMeta.contextUsageRatio = contextUsageRatio;
     if (usageEstimated)
         qoderMeta.usageEstimated = true;
-    emitFinish(state, makeUsage(inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens), finishReason, Object.keys(qoderMeta).length > 0 ? { qoder: qoderMeta } : undefined);
+    emitFinish(state, makeUsage(inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens), finishReason, Object.keys(qoderMeta).length > 0 ? qoderMeta : undefined);
 }
-function emitFinish(state, usage, finishReason, providerMetadata) {
+function emitFinish(state, usage, finishReason, qoderMeta) {
     state.controller.enqueue({
         type: "finish",
         finishReason,
         usage,
-        ...(providerMetadata ? { providerMetadata: { qoder: providerMetadata } } : {}),
+        ...(qoderMeta ? { providerMetadata: { qoder: qoderMeta } } : {}),
     });
     state.finished = true;
 }

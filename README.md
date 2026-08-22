@@ -237,6 +237,16 @@ npm run test:e2e   # authenticated real-CLI test; requires QODER_E2E=1
 npm run check      # full pre-publish verification
 ```
 
+### Diagnostics
+
+Set `QODER_BRIDGE_DEBUG=1` before launching opencode to emit detailed bridge
+logs (model fallbacks, stream aborts, background catalog refreshes, ledger and
+session-store I/O failures). Warnings that need attention are always printed.
+
+State files (usage ledger, session mapping, model cache) live under
+`~/.config/opencode-qoder-bridge` by default; override with
+`QODER_BRIDGE_STATE_DIR`, or relocate via `XDG_CONFIG_HOME`.
+
 The end-to-end test is intentionally opt-in because it starts Qoder and may
 consume account quota. Run it only after `qoder login`:
 

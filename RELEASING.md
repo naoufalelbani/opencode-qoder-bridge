@@ -19,9 +19,17 @@ Run the complete release gate from a clean checkout:
 ```bash
 npm ci
 npm run check
+QODER_E2E=1 npm run test:e2e   # requires qoder login; consumes quota
 npm pack --dry-run
 npm publish
 ```
+
+The end-to-end gate is mandatory for any release that touches
+`src/language-model.ts`, `src/models.ts`, or `src/usage.ts`: unit tests mock
+the SDK, so only `QODER_E2E=1` exercises real streaming, tool calls, provider
+metadata, and live model discovery. Verify before publishing that the dry-run
+tarball contains `dist/` (including `errors.js`, `logger.js`,
+`state-dir.js`) and both `bin/` scripts, and nothing else unexpected.
 
 Verify the registry package and install it through OpenCode:
 
@@ -51,8 +59,9 @@ After the package exists on npm:
 
 ## Subsequent releases
 
-Update `version` using semantic versioning, run the release gate, commit the
-change, and push a matching tag:
+Update `version` using semantic versioning, document the release in
+`CHANGELOG.md`, run the release gate, commit the change, and push a matching
+tag:
 
 ```bash
 npm version patch

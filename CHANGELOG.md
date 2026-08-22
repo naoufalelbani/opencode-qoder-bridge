@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-08-22
+
+### Fixed
+
+- Removed an accidental self-dependency (`opencode-qoder-bridge`) from
+  `dependencies`, which made npm install a nested copy of the package into
+  itself.
+- Provider metadata on stream finish is no longer double-nested; consumers now
+  read `providerMetadata.qoder.totalCostUSD`, `contextUsageRatio`, and
+  `usageEstimated` at the documented path.
+- `doGenerate` no longer drops tool-call content parts, so non-streaming
+  callers receive tool invocations.
+- History trimming in the prompt builder serializes each message once instead
+  of re-serializing the whole prompt per dropped turn (O(n²) → O(n)).
+- The usage ledger flushes synchronously on process exit, so the most recent
+  turns are no longer lost when opencode shuts down inside the debounce window.
+
+### Added
+
+- Typed error hierarchy exported from `dist/errors.js`: `QoderBridgeError`
+  base with a stable `code`, plus `QoderCliNotFoundError`,
+  `QoderAuthError`, `QoderSessionError`, `QoderSdkResultError`, and
+  `UnsupportedCapabilityError`.
+- Opt-in debug logging via `QODER_BRIDGE_DEBUG=1` covering model fallbacks,
+  stream aborts, background catalog refreshes, and ledger/session-store I/O
+  failures that were previously swallowed silently.
+- Authorization failures now explain what is missing (CLI vs personal access
+  token) instead of returning an unlabeled failure.
+- `QODER_BRIDGE_STATE_DIR` and `XDG_CONFIG_HOME` are now honored consistently
+  by every state file, including `usage.json`, `sessions.json`,
+  `models.json`, and the statusline binary (previously only the session store).
+- Diagnostics section in the README.
+
+### Changed
+
+- Model catalog fetches de-duplicate concurrent refreshes into a single SDK
+  session.
+- The `models.json` cache is written atomically with mode 0600 instead of a
+  direct partial-write-prone write.
+- Unknown model IDs fall back to the default model with a debug log entry.
+
+## [0.1.3] - 2026-08-20
+
+### Changed
+
+- Refreshed the fallback model catalog and quota reporting behavior.
+- Removed the experimental model-backed quota command; account usage remains
+  available through the `qoder_usage` tool.
+- Documentation updates for models and quota handling.
+
 ## [0.1.2] - 2026-08-20
 
 ### Security
@@ -66,3 +116,5 @@ also verified with an in-process MCP transport.
 [0.1.1]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/naoufalelbani/opencode-qoder-bridge/releases/tag/v0.1.0
 [0.1.2]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.1...v0.1.2
+[0.1.3]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.2...v0.1.3
+[0.1.4]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.3...v0.1.4

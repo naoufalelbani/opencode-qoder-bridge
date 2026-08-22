@@ -11,11 +11,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ModelUsage } from "@qoder-ai/qoder-agent-sdk";
+import { resolveStateDir } from "./state-dir.js";
+import { debug, describeError } from "./logger.js";
 
-const STATE_DIR = join(homedir(), ".config", "opencode-qoder-bridge");
+const STATE_DIR = resolveStateDir();
 const STATE_FILE = join(STATE_DIR, "usage.json");
 const MAX_STATE_BYTES = 1_000_000;
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
@@ -51,12 +52,15 @@ function load(): PersistedState {
   try {
     const info = lstatSync(STATE_FILE);
     if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_STATE_BYTES) {
+      debug("Cost ledger reset (missing, symlinked, or oversized state file)");
       return emptyState();
     }
     try { chmodSync(STATE_FILE, 0o600); } catch { /* readable state can still be used */ }
     const raw = readFileSync(STATE_FILE, "utf8");
     return sanitizeState(JSON.parse(raw));
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code !== "ENOENT") debug("Cost ledger unreadable; starting empty:", describeError(error));
     return emptyState();
   }
 }
@@ -111,39 +115,76 @@ function sanitizeState(value: unknown): PersistedState {
 
 let state: PersistedState | null = null;
 let writeTimer: ReturnType<typeof setTimeout> | null = null;
+let dirty = false;
+let exitHookInstalled = false;
 
 function current(): PersistedState {
   state ??= load();
   return state;
 }
 
+function writeStateFile(): void {
+  let temporary: string | undefined;
+  let fd: number | undefined;
+  try {
+    mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+    chmodSync(STATE_DIR, 0o700);
+    temporary = join(STATE_DIR, `.usage.${process.pid}.${randomUUID()}.tmp`);
+    fd = openSync(temporary, "wx", 0o600);
+    writeFileSync(fd, JSON.stringify(current(), null, 2), "utf8");
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(temporary, STATE_FILE);
+    temporary = undefined;
+  } catch (error) {
+    debug("Cost ledger persist failed:", describeError(error));
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* best-effort */ }
+    }
+    if (temporary) {
+      try { unlinkSync(temporary); } catch { /* best-effort */ }
+    }
+  }
+}
+
+/**
+ * The debounced timer is unref'd, so a fast-exiting host process would drop
+ * the most recent turns. A synchronous flush on "exit" closes that gap.
+ */
+function installExitFlush(): void {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.on("exit", () => {
+    if (!dirty) return;
+    dirty = false;
+    try {
+      mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+      const temporary = join(STATE_DIR, `.usage.${process.pid}.${randomUUID()}.exit.tmp`);
+      const fd = openSync(temporary, "wx", 0o600);
+      try {
+        writeFileSync(fd, JSON.stringify(current(), null, 2), "utf8");
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      renameSync(temporary, STATE_FILE);
+    } catch {
+      /* nothing left to do during exit */
+    }
+  });
+}
+
 function persist(): void {
+  dirty = true;
+  installExitFlush();
   if (writeTimer) return;
   writeTimer = setTimeout(() => {
     writeTimer = null;
-    let temporary: string | undefined;
-    let fd: number | undefined;
-    try {
-      mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
-      chmodSync(STATE_DIR, 0o700);
-      temporary = join(STATE_DIR, `.usage.${process.pid}.${randomUUID()}.tmp`);
-      fd = openSync(temporary, "wx", 0o600);
-      writeFileSync(fd, JSON.stringify(current(), null, 2), "utf8");
-      fsyncSync(fd);
-      closeSync(fd);
-      fd = undefined;
-      renameSync(temporary, STATE_FILE);
-      temporary = undefined;
-    } catch {
-      /* best-effort */
-    } finally {
-      if (fd !== undefined) {
-        try { closeSync(fd); } catch { /* best-effort */ }
-      }
-      if (temporary) {
-        try { unlinkSync(temporary); } catch { /* best-effort */ }
-      }
-    }
+    if (!dirty) return;
+    dirty = false;
+    writeStateFile();
   }, 250);
   if (typeof writeTimer.unref === "function") writeTimer.unref();
 }

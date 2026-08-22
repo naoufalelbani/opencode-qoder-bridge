@@ -3,10 +3,12 @@ import type { QoderModelDef } from "./types.js";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
 import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveStateDir } from "./state-dir.js";
+import { debug, describeError } from "./logger.js";
 
 const CONTEXT = 200_000;
 const OUTPUT = 32_000;
@@ -43,7 +45,8 @@ export const FALLBACK_MODELS: QoderModelDef[] = [
 export const DEFAULT_MODEL_ID = "auto";
 
 const MODEL_INDEX = new Map(FALLBACK_MODELS.map((m) => [m.id, m]));
-const MODEL_CACHE_FILE = join(homedir(), ".config", "opencode-qoder-bridge", "models.json");
+const STATE_DIR = resolveStateDir();
+const MODEL_CACHE_FILE = join(STATE_DIR, "models.json");
 
 function addToIndex(m: DynamicModelEntry): void {
   MODEL_INDEX.set(m.id, {
@@ -119,7 +122,8 @@ function loadCachedModels(): DynamicModelEntry[] | null {
     });
     for (const model of models) addToIndex(model);
     return models.length > 0 ? models : null;
-  } catch {
+  } catch (error) {
+    debug("Model cache unreadable; using fallback catalog:", describeError(error));
     return null;
   }
 }
@@ -132,11 +136,28 @@ export function getCachedDynamicModels(): DynamicModelEntry[] | null {
   return cachedDynamicModels;
 }
 
+let inflightFetch: Promise<DynamicModelEntry[] | null> | null = null;
+
 export async function fetchDynamicModels(force = false): Promise<DynamicModelEntry[] | null> {
   if (cachedDynamicModels && !force) return cachedDynamicModels;
+  if (inflightFetch) return inflightFetch;
+  inflightFetch = doFetchDynamicModels().finally(() => {
+    inflightFetch = null;
+  });
+  return inflightFetch;
+}
 
+async function writeCacheFile(models: DynamicModelEntry[]): Promise<void> {
+  mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+  try { chmodSync(STATE_DIR, 0o700); } catch { /* best-effort */ }
+  const temporary = join(STATE_DIR, `.models.${process.pid}.${randomUUID()}.tmp`);
+  await writeFile(temporary, JSON.stringify(models, null, 2) + "\n", { mode: 0o600 });
+  renameSync(temporary, MODEL_CACHE_FILE);
+}
+
+async function doFetchDynamicModels(): Promise<DynamicModelEntry[] | null> {
   const cli = findQoderCLI();
-    if (!cli && !hasQoderPAT()) return null;
+  if (!cli && !hasQoderPAT()) return null;
 
   let q: ReturnType<typeof query> | undefined;
   const abortController = new AbortController();
@@ -155,10 +176,12 @@ export async function fetchDynamicModels(force = false): Promise<DynamicModelEnt
     const enabled = models.filter((m) => m.isEnabled !== false);
     cachedDynamicModels = enabled.map(mapModelInfo);
     for (const m of cachedDynamicModels) addToIndex(m);
-    try { mkdirSync(join(homedir(), ".config", "opencode-qoder-bridge"), { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
-    void writeFile(MODEL_CACHE_FILE, JSON.stringify(cachedDynamicModels, null, 2) + "\n", { mode: 0o600 }).catch(() => {});
+    await writeCacheFile(cachedDynamicModels).catch((error) => {
+      debug("Model cache write failed:", describeError(error));
+    });
     return cachedDynamicModels;
-  } catch {
+  } catch (error) {
+    debug("Live model catalog unavailable; keeping cached/fallback models:", describeError(error));
     return null;
   } finally {
     abortController.abort();

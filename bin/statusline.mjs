@@ -3,7 +3,16 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const STATE_FILE = join(homedir(), ".config", "opencode-qoder-bridge", "usage.json");
+// Mirrors resolveStateDir() from src/state-dir.ts:
+// QODER_BRIDGE_STATE_DIR > XDG_CONFIG_HOME > ~/.config.
+function resolveStateDir(env = process.env) {
+  const override = env.QODER_BRIDGE_STATE_DIR?.trim();
+  if (override) return join(override);
+  const configHome = env.XDG_CONFIG_HOME?.trim();
+  return join(configHome || join(homedir(), ".config"), "opencode-qoder-bridge");
+}
+
+const STATE_FILE = join(resolveStateDir(), "usage.json");
 
 function fmt(usd) {
   return `$${(usd ?? 0).toFixed(4)}`;

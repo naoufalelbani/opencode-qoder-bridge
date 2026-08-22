@@ -3,6 +3,7 @@ import type { UsageInfo } from "@qoder-ai/qoder-agent-sdk";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
 import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
+import { debug, describeError } from "./logger.js";
 
 const CACHE_TTL_MS = 60_000;
 
@@ -43,7 +44,8 @@ export function getLiveUsage(force = false): Promise<UsageInfo | null> {
         cacheExpiry = Date.now() + CACHE_TTL_MS;
       }
       return usage;
-    } catch {
+    } catch (error) {
+      debug("Live usage fetch failed:", describeError(error));
       return cached;
     } finally {
       abortController.abort();

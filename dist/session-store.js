@@ -1,10 +1,10 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
 import { join } from "node:path";
-const STATE_DIR = process.env.QODER_BRIDGE_STATE_DIR
-    ? join(process.env.QODER_BRIDGE_STATE_DIR)
-    : join(homedir(), ".config", "opencode-qoder-bridge");
+import { resolveStateDir } from "./state-dir.js";
+import { QoderSessionError } from "./errors.js";
+import { debug, describeError } from "./logger.js";
+const STATE_DIR = resolveStateDir();
 const STATE_FILE = join(STATE_DIR, "sessions.json");
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 function validRecord(value) {
@@ -17,18 +17,29 @@ function validRecord(value) {
         && typeof record.lastUsedAt === "string";
 }
 async function load() {
+    let raw;
     try {
-        const raw = JSON.parse(await readFile(STATE_FILE, "utf8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        raw = await readFile(STATE_FILE, "utf8");
+    }
+    catch (error) {
+        const code = error?.code;
+        if (code !== "ENOENT")
+            debug("Session store unreadable:", describeError(error));
+        return {};
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
             return {};
         const state = {};
-        for (const [key, value] of Object.entries(raw)) {
+        for (const [key, value] of Object.entries(parsed)) {
             if (!UNSAFE_KEYS.has(key) && validRecord(value))
                 state[key] = value;
         }
         return state;
     }
-    catch {
+    catch (error) {
+        debug("Session store held invalid JSON; starting empty:", describeError(error));
         return {};
     }
 }
@@ -46,7 +57,7 @@ export async function getQoderSession(key) {
 }
 export async function ensureQoderSession(key, qoderSessionId, cwd) {
     if (!key || UNSAFE_KEYS.has(key))
-        throw new Error("Invalid Qoder session key");
+        throw new QoderSessionError("Invalid Qoder session key");
     const state = await load();
     const now = new Date().toISOString();
     const existing = state[key];
