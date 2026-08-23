@@ -1,8 +1,20 @@
 {
   "name": "opencode-qoder-bridge",
   "version": "0.1.5",
-  "description": "opencode plugin that bridges Qoder AI models via @qoder-ai/qoder-agent-sdk",
-  "author": "Naoufal El Bani",
+  "description": "Qoder provider plugin for OpenCode powered by the official Qoder Agent SDK, with streaming, tools, MCP, sessions, multimodal input, and quota tracking.",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "qoder",
+    "qoder-ai",
+    "qoder-provider",
+    "qoder-agent-sdk",
+    "qoder-cli",
+    "ai-coding",
+    "coding-agent",
+    "mcp"
+  ],
+  "author": "Naoufal EL BANI",
   "type": "module",
   "license": "MIT",
   "homepage": "https://github.com/naoufalelbani/opencode-qoder-bridge#readme",
@@ -93,13 +105,6 @@
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
-  "keywords": [
-    "opencode",
-    "opencode-plugin",
-    "qoder",
-    "ai",
-    "llm"
-  ],
   "allowScripts": {
     "@qoder-ai/qoder-agent-sdk@1.0.25": true,
     "msgpackr-extract@3.0.4": true
