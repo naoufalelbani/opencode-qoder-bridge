@@ -1,7 +1,7 @@
 import { query } from "@qoder-ai/qoder-agent-sdk";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
-import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
+import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { debug, describeError } from "./logger.js";
 const CACHE_TTL_MS = 60_000;
 let cached = null;
@@ -20,7 +20,7 @@ export function getLiveUsage(force = false) {
         return inflight;
     inflight = (async () => {
         const cli = findQoderCLI();
-        if (!cli && !hasQoderPAT())
+        if (!hasQoderCredential())
             return null;
         const abortController = new AbortController();
         const sdkOptions = {

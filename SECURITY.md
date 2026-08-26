@@ -19,6 +19,7 @@ keep OpenCode, the Qoder CLI, and package dependencies current.
 ## Credential handling
 
 This plugin does not distribute Qoder credentials. Authentication remains with
-the locally installed Qoder CLI. Never include files from `~/.qoder/`, npm
+the Qoder Agent SDK. Use a personal access token or local Qoder sign-in as
+documented by the SDK; its bundled Worker runtime can be used without a
+separately installed Qoder CLI. Never include files from `~/.qoder/`, npm
 tokens, prompts containing secrets, or local usage ledgers in a report.
-

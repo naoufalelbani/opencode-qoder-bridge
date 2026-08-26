@@ -2,7 +2,7 @@ import { query, type ModelInfo } from "@qoder-ai/qoder-agent-sdk";
 import type { QoderModelDef } from "./types.js";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
-import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
+import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -168,7 +168,7 @@ async function writeCacheFile(models: DynamicModelEntry[]): Promise<void> {
 
 async function doFetchDynamicModels(): Promise<DynamicModelEntry[] | null> {
   const cli = findQoderCLI();
-  if (!cli && !hasQoderPAT()) return null;
+  if (!hasQoderCredential()) return null;
 
   let q: ReturnType<typeof query> | undefined;
   const abortController = new AbortController();

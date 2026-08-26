@@ -6,8 +6,8 @@ import { buildPromptString, buildPromptIterable, latestPrompt, promptHasImage } 
 import { normalizeToolName, normalizeToolInputString } from "./tool-normalizer.js";
 import { recordTurn } from "./cost.js";
 import { ensureQoderSession, getQoderSession } from "./session-store.js";
-import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
-import { QoderCliNotFoundError, QoderSdkResultError } from "./errors.js";
+import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
+import { QoderAuthError, QoderSdkResultError } from "./errors.js";
 import { debug, describeError } from "./logger.js";
 function isRecord(v) {
     return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -100,8 +100,8 @@ export class QoderLanguageModel {
     }
     async doStream(options) {
         const cli = findQoderCLI();
-        if (!cli && !hasQoderPAT()) {
-            throw new QoderCliNotFoundError();
+        if (!hasQoderCredential()) {
+            throw new QoderAuthError("No Qoder credentials found. Run `qoder login` or set QODER_PERSONAL_ACCESS_TOKEN.");
         }
         const resolved = getModel(this.modelId) ?? getModel(DEFAULT_MODEL_ID);
         if (!getModel(this.modelId)) {

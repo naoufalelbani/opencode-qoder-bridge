@@ -512,6 +512,12 @@ describe("SDK dependency resolution", () => {
     assert.equal(typeof sdk.query, "function");
     assert.equal(typeof sdk.qodercliAuth, "function");
   });
+
+  test("SDK exposes the bundled Worker runtime as the default transport", async () => {
+    const sdk = await import("@qoder-ai/qoder-agent-sdk");
+    assert.equal(sdk.DEFAULT_RUNTIME_TRANSPORT, "worker");
+    assert.equal(typeof sdk.WorkerTransport, "function");
+  });
 });
 
 describe("stream protocol shape", () => {
@@ -566,6 +572,18 @@ describe("auth module", () => {
   test("isAuthenticated returns boolean", async () => {
     const { isAuthenticated } = await import(DIST + "auth.js");
     assert.equal(typeof isAuthenticated(), "boolean");
+  });
+
+  test("credential detection does not require a local CLI", async () => {
+    const old = process.env.QODER_PERSONAL_ACCESS_TOKEN;
+    process.env.QODER_PERSONAL_ACCESS_TOKEN = "pt-test-only";
+    try {
+      const { hasQoderCredential } = await import(DIST + "sdk-auth.js");
+      assert.equal(hasQoderCredential(), true);
+    } finally {
+      if (old === undefined) delete process.env.QODER_PERSONAL_ACCESS_TOKEN;
+      else process.env.QODER_PERSONAL_ACCESS_TOKEN = old;
+    }
   });
 });
 

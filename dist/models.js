@@ -1,7 +1,7 @@
 import { query } from "@qoder-ai/qoder-agent-sdk";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
-import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
+import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -142,7 +142,7 @@ async function writeCacheFile(models) {
 }
 async function doFetchDynamicModels() {
     const cli = findQoderCLI();
-    if (!cli && !hasQoderPAT())
+    if (!hasQoderCredential())
         return null;
     let q;
     const abortController = new AbortController();

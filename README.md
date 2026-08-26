@@ -223,7 +223,7 @@ host environment is trusted.
 | Problem | Solution |
 |---------|----------|
 | Auth prompt at startup | Run `qoder login`, then restart opencode |
-| `qodercli not found` | Install the Qoder CLI; ensure `qodercli` is on PATH or under `~/.qoder/` |
+| `qodercli not found` | Authenticate with `qoder login` or set `QODER_PERSONAL_ACCESS_TOKEN`; the SDK can use its bundled runtime, while an installed CLI is preferred when available |
 | Model not found | Verify the model ID matches the table above |
 | Missing models in the model list | Run `/qoder_models`; the bridge refreshes the live catalog at every startup and falls back to the last cached catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching opencode (or via provider option `env`) |
 

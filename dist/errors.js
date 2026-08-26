@@ -13,7 +13,7 @@ export class QoderBridgeError extends Error {
     }
 }
 export class QoderCliNotFoundError extends QoderBridgeError {
-    constructor(message = "qodercli not found. Install Qoder CLI first: https://docs.qoder.com/cli", options) {
+    constructor(message = "Qoder CLI runtime not found. Install Qoder CLI or use the bundled Qoder SDK runtime.", options) {
         super("QODER_CLI_NOT_FOUND", message, options);
     }
 }

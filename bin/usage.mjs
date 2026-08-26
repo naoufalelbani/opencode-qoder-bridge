@@ -8,7 +8,7 @@ async function main() {
   lines.push(
     live
       ? formatUsageReport(live)
-      : "Live Qoder usage unavailable (not logged in or Qoder CLI missing).",
+      : "Live Qoder usage unavailable (not logged in or Qoder runtime unavailable).",
   );
 
   const summary = summarize();

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.8] - 2026-08-26
+
+### Fixed
+
+- Allow authenticated sessions to use the Qoder Agent SDK's bundled Worker
+  runtime when a separately installed `qodercli` executable is unavailable.
+- Updated authentication and usage guidance to distinguish missing credentials
+  from an optional local CLI installation.
+
 ## [0.1.5] - 2026-08-22
 
 ### Fixed
@@ -145,3 +154,4 @@ also verified with an in-process MCP transport.
 [0.1.3]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.2...v0.1.3
 [0.1.4]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.3...v0.1.4
 [0.1.5]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.4...v0.1.5
+[0.1.8]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.7...v0.1.8

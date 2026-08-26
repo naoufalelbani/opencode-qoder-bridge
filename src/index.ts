@@ -1,8 +1,7 @@
 import type { Hooks, Config, Plugin } from "@opencode-ai/plugin";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels, listModels } from "./models.js";
 import type { DynamicModelEntry } from "./models.js";
-import { findQoderCLI } from "./auth.js";
-import { hasQoderCredential, hasQoderPAT, QODER_PAT_ENV } from "./sdk-auth.js";
+import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { getLiveUsage, formatUsageReport } from "./usage.js";
 import { summarize, formatCost } from "./cost.js";
@@ -115,19 +114,14 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
           label: `Use ${QODER_PAT_ENV} or run qoder login in your terminal`,
           prompts: [],
           async authorize() {
-            if (!findQoderCLI() && !hasQoderPAT()) {
+            if (!hasQoderCredential()) {
               warn(
-                "Authorize failed: qodercli not found on PATH and no",
-                `${QODER_PAT_ENV} is set. Install the CLI (https://docs.qoder.com/cli)`,
-                "or export a personal access token, then retry.",
+                "Authorize failed: no usable Qoder credential found.",
+                `Run qoder login or set ${QODER_PAT_ENV}, then retry.`,
               );
               return { type: "failed" };
             }
-            if (hasQoderCredential()) {
-              return { type: "success", key: "qoder-cli-auth" };
-            }
-            warn("Authorize failed: no usable Qoder credential found.");
-            return { type: "failed" };
+            return { type: "success", key: "qoder-cli-auth" };
           },
         },
       ],
@@ -142,7 +136,7 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
           const lines: string[] = [];
 
           const live = await getLiveUsage();
-          lines.push(live ? formatUsageReport(live) : "Live usage unavailable (not logged in or CLI missing).");
+          lines.push(live ? formatUsageReport(live) : "Live usage unavailable (not logged in or Qoder runtime unavailable).");
 
           const s = summarize();
           lines.push("");

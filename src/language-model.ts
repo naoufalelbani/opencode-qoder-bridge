@@ -18,8 +18,8 @@ import { normalizeToolName, normalizeToolInputString } from "./tool-normalizer.j
 import { recordTurn } from "./cost.js";
 import type { QoderBridgeOptions } from "./types.js";
 import { ensureQoderSession, getQoderSession } from "./session-store.js";
-import { hasQoderPAT, qoderAuth } from "./sdk-auth.js";
-import { QoderCliNotFoundError, QoderSdkResultError } from "./errors.js";
+import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
+import { QoderAuthError, QoderSdkResultError } from "./errors.js";
 import { debug, describeError } from "./logger.js";
 
 type StreamController = ReadableStreamDefaultController<LanguageModelV3StreamPart>;
@@ -144,8 +144,10 @@ export class QoderLanguageModel implements LanguageModelV3 {
 
   async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
     const cli = findQoderCLI();
-    if (!cli && !hasQoderPAT()) {
-      throw new QoderCliNotFoundError();
+    if (!hasQoderCredential()) {
+      throw new QoderAuthError(
+        "No Qoder credentials found. Run `qoder login` or set QODER_PERSONAL_ACCESS_TOKEN.",
+      );
     }
 
     const resolved = getModel(this.modelId) ?? getModel(DEFAULT_MODEL_ID)!;
