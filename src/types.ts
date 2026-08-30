@@ -29,6 +29,8 @@ export interface QoderBridgeOptions {
   planMode?: boolean;
   /** Outbound proxy URL used by qodercli (e.g. http://, https://, socks5://). */
   proxy?: string;
+  /** Optional private-deployment endpoint used by the Qoder SDK runtime. */
+  vpcEndpoint?: string;
   /** Opt-in skill evolution configuration for the session. */
   evolution?: EvolutionOptions;
   /** Extra CLI flags forwarded to qodercli; accepts bare or `--`-prefixed names. */
@@ -52,8 +54,8 @@ export interface QoderBridgeOptions {
   /** Optional SDK tool denylist. */
   disallowedTools?: string[];
   /**
-   * Extra environment variables for the qodercli child process used for chat
-   * turns. Live model discovery reads QODER_SCENE from the host environment.
+   * Extra environment variables forwarded to the Qoder SDK runtime for chat
+   * turns and live model discovery.
    */
   env?: Record<string, string | undefined>;
 }

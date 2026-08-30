@@ -422,8 +422,14 @@ export class QoderLanguageModel {
         if (!hasQoderCredential(childEnvironment)) {
             throw new QoderAuthError("No Qoder credentials found. Run `qoder login` or set QODER_PERSONAL_ACCESS_TOKEN.");
         }
-        const resolved = getModel(this.modelId);
-        const model = resolved ?? getModel(DEFAULT_MODEL_ID);
+        const cwd = resolveCwd(this.bridgeOptions.cwd);
+        const modelDiscoveryOptions = { cwd };
+        if (this.bridgeOptions.proxy)
+            modelDiscoveryOptions.proxy = this.bridgeOptions.proxy;
+        if (this.bridgeOptions.vpcEndpoint)
+            modelDiscoveryOptions.vpcEndpoint = this.bridgeOptions.vpcEndpoint;
+        const resolved = getModel(this.modelId, childEnvironment, modelDiscoveryOptions);
+        const model = resolved ?? getModel(DEFAULT_MODEL_ID, childEnvironment, modelDiscoveryOptions);
         if (!resolved) {
             // Use the default catalog entry only for conservative prompt limits.
             // Preserve the requested ID on the SDK call so an unknown model is not
@@ -431,7 +437,6 @@ export class QoderLanguageModel {
             debug(`Unknown model id "${this.modelId}"; forwarding it with default prompt limits`);
         }
         const sessionKey = this.bridgeOptions.sessionKey ?? this.bridgeOptions.sessionId;
-        const cwd = resolveCwd(this.bridgeOptions.cwd);
         const functionToolNames = new Set((options.tools ?? [])
             .filter((t) => t.type === "function")
             .map((t) => normalizeToolName(t.name)));
@@ -525,6 +530,8 @@ export class QoderLanguageModel {
                     artifacts: [],
                     planMode: undefined,
                     skillEvolution: undefined,
+                    modelEnvironment: childEnvironment,
+                    modelDiscoveryOptions,
                 };
                 safeEnqueue(controller, { type: "stream-start", warnings: [] });
                 try {
@@ -768,7 +775,7 @@ function handleSystem(m, state) {
     }
     else if (subtype === "available_models_update" && Array.isArray(m.models)) {
         debug(`Received live available_models_update with ${m.models.length} models`);
-        applyLiveModelUpdates(m.models);
+        applyLiveModelUpdates(m.models, state.modelEnvironment, state.modelDiscoveryOptions);
     }
     else if (subtype === "artifacts_update" && Array.isArray(m.artifacts)) {
         const incoming = m.artifacts.slice(0, 1_000);

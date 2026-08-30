@@ -122,25 +122,16 @@ The bridge discovers the available catalog at startup through the SDK's
 SDK-version-dependent. A permanent allowlist is intentionally not embedded
 here because the catalog is account- and scene-dependent.
 
-The following is the current model snapshot returned by `qodercli --list-models`
-on 2026-08-30:
-
-| Model |
-|-------|
-| `Qwen3.8-Max` |
-| `Qwen3.8-Flash` |
-| `Qwen3.7-Max` |
-| `Qwen3.7-Plus` |
-
-This is an account-, region-, plan-, CLI-version-, and rollout-dependent
-snapshot. The CLI command reports display names only; the bridge's SDK catalog
-is authoritative for model IDs, capabilities, context limits, and pricing.
-Run `qodercli --list-models` and restart OpenCode to refresh the local view.
+There is intentionally no static model table here. Model availability is
+account-, region-, plan-, scene-, SDK-version-, and rollout-dependent, and the
+SDK's live catalog is authoritative for selectable IDs, capabilities, context
+limits, and pricing.
 
 Run `opencode models qoder` to inspect the models currently registered with
 OpenCode. The `qoder_models` tool also exposes capabilities, context limits,
-and price multipliers to the agent. Model discovery is cached and refreshed in
-the background so network or authentication latency does not block startup.
+and price multipliers to the agent. On each plugin startup, the bridge performs
+bounded live discovery automatically; if Qoder is unavailable, it uses the
+last catalog for the same credential/deployment context and the built-ins.
 
 ## Configuration
 
@@ -295,18 +286,21 @@ The plugin registers several built-in OpenCode tools:
 | Problem | Solution |
 |---------|----------|
 | Auth prompt at startup | Run `qoder login`, then restart opencode |
-| `qodercli not found` | Authenticate with `qoder login` or set `QODER_PERSONAL_ACCESS_TOKEN`; the SDK can use its bundled runtime, while an installed CLI is preferred when available |
-| Model not found | Verify the model ID matches the table above |
-| Missing models in the model list | Run `/qoder_models`; the bridge refreshes the live catalog at startup and falls back to the last cached catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching opencode |
+| Qoder runtime unavailable | Authenticate with `qoder login` or set `QODER_PERSONAL_ACCESS_TOKEN`; the bridge uses the SDK's bundled Worker runtime for model discovery and can fall back to an installed CLI automatically |
+| Model not found | Run `opencode models qoder` or `/qoder_models`; model IDs are account- and scene-specific |
+| Missing models in the model list | Restart OpenCode; the bridge performs a live catalog lookup automatically and falls back to the last scoped catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching OpenCode |
 
 ### How model discovery works
 
-At startup the bridge immediately exposes cached/built-in models, then
-refreshes the live catalog from Qoder (`fetchStrategy: "live"` — the CLI
-re-queries the server and falls back to its local cache if the server returns
-nothing). Each successful catalog snapshot replaces previously discovered
-dynamic IDs, so retired models do not remain selectable. A failed refresh
-keeps the last known catalog and the built-ins.
+At startup the bridge performs a bounded live catalog discovery from Qoder
+before returning the provider configuration (`fetchStrategy: "live"` — the
+bundled Worker runtime re-queries the server, with an automatic installed-CLI
+fallback when necessary). Each successful catalog snapshot replaces
+previously discovered dynamic IDs, so retired models do not remain selectable.
+A failed, empty, or slow refresh falls back to the last scoped catalog and the
+built-ins; no `qodercli --list-models` command or manual model configuration is
+required. The startup wait is bounded to 10 seconds, after which OpenCode
+continues with the available cache/fallbacks.
 
 ## Development
 
@@ -322,7 +316,7 @@ npm run check      # full pre-publish verification
 ### Diagnostics
 
 Set `QODER_BRIDGE_DEBUG=1` before launching opencode to emit detailed bridge
-logs (model fallbacks, stream aborts, background catalog refreshes, ledger and
+logs (model fallbacks, stream aborts, live catalog discovery, ledger and
 session-store I/O failures). Warnings that need attention are always printed.
 
 State files (usage ledger, session mapping, model cache) live under

@@ -1,7 +1,7 @@
 import { type Hooks, type Config, type Plugin, tool } from "@opencode-ai/plugin";
 import { listSessions } from "@qoder-ai/qoder-agent-sdk";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels, listModels } from "./models.js";
-import type { DynamicModelEntry } from "./models.js";
+import type { DynamicModelEntry, ModelDiscoveryOptions } from "./models.js";
 import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { getLiveUsage, formatUsageReport } from "./usage.js";
@@ -12,9 +12,8 @@ import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
 
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
-const MODEL_REFRESH_INTERVAL_MS = 60_000;
+const MODEL_STARTUP_DISCOVERY_TIMEOUT_MS = 10_000;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
-let lastModelRefreshAt = 0;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -24,6 +23,24 @@ function safeDisplay(value: unknown, fallback: string, maxLength = 512): string 
   if (typeof value !== "string" || !value) return fallback;
   const clean = value.replace(CONTROL_CHARS, " ").slice(0, maxLength);
   return clean || fallback;
+}
+
+function discoveryEnvironment(value: unknown): Record<string, string | undefined> {
+  const environment: Record<string, string | undefined> = { ...process.env };
+  if (!isRecord(value)) return environment;
+  for (const [key, item] of Object.entries(value)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    if (typeof item === "string" || item === undefined) environment[key] = item;
+  }
+  return environment;
+}
+
+function discoveryOptions(options: Record<string, unknown>): ModelDiscoveryOptions {
+  const result: ModelDiscoveryOptions = { timeoutMs: MODEL_STARTUP_DISCOVERY_TIMEOUT_MS };
+  if (typeof options.proxy === "string" && options.proxy.trim()) result.proxy = options.proxy;
+  if (typeof options.vpcEndpoint === "string" && options.vpcEndpoint.trim()) result.vpcEndpoint = options.vpcEndpoint;
+  if (typeof options.cwd === "string" && options.cwd.trim()) result.cwd = options.cwd;
+  return result;
 }
 
 function buildFallbackEntry(m: (typeof FALLBACK_MODELS)[number]) {
@@ -67,6 +84,8 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
   let configuredSessionKey: string | undefined;
   let configuredSessionId: string | undefined;
   let configuredCwd = workspaceCwd ?? process.cwd();
+  let modelEnvironment: Record<string, string | undefined> = { ...process.env };
+  let modelOptions: ModelDiscoveryOptions = { timeoutMs: MODEL_STARTUP_DISCOVERY_TIMEOUT_MS };
 
   if (input) {
     if (isDebugEnabled()) debug("Plugin initializing");
@@ -84,11 +103,25 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
     async config(config: Config) {
       config.provider ??= {};
       const existing = isRecord(config.provider.qoder) ? config.provider.qoder : {};
+      const existingOptions = isRecord(existing.options) ? existing.options : {};
+      const environment = discoveryEnvironment(existingOptions.env);
+      const discoveryConfig = discoveryOptions(existingOptions);
+      modelEnvironment = environment;
+      modelOptions = discoveryConfig;
+
+      // OpenCode snapshots provider models while this hook runs. Complete one
+      // bounded live discovery before returning so a fresh install exposes the
+      // current account catalog immediately; retain cache/fallback behavior if
+      // Qoder is offline, unauthenticated, or slower than the startup budget.
+      let dynamic = getCachedDynamicModels(environment, discoveryConfig);
+      try {
+        const refreshed = await fetchDynamicModels(true, environment, discoveryConfig);
+        if (refreshed) dynamic = refreshed;
+      } catch (error) {
+        debug("Startup model discovery unavailable; using cached/fallback models:", describeError(error));
+      }
 
       const builtinModels: Record<string, unknown> = {};
-      // Use cached/fallback models immediately. Refresh the catalog in the
-      // background so OpenCode startup never waits on network/auth discovery.
-      const dynamic = getCachedDynamicModels();
       if (dynamic) {
         for (const m of dynamic) {
           if (!UNSAFE_KEYS.has(m.id)) builtinModels[m.id] = buildDynamicEntry(m);
@@ -99,17 +132,10 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
       for (const m of FALLBACK_MODELS) {
         if (!UNSAFE_KEYS.has(m.id) && !builtinModels[m.id]) builtinModels[m.id] = buildFallbackEntry(m);
       }
-      if (Date.now() - lastModelRefreshAt >= MODEL_REFRESH_INTERVAL_MS) {
-        lastModelRefreshAt = Date.now();
-        void fetchDynamicModels(true).catch((error) => {
-          debug("Background model refresh failed:", describeError(error));
-        });
-      }
       const existingModels = isRecord(existing.models) ? existing.models : {};
       const mergedModels = { ...builtinModels, ...existingModels };
 
       const bridgedMcp = bridgeMcpServers((config as Record<string, unknown>).mcp);
-      const existingOptions = isRecord(existing.options) ? existing.options : {};
       const mergedOptions: Record<string, unknown> = { ...existingOptions };
       if (workspaceCwd && (typeof mergedOptions.cwd !== "string" || !mergedOptions.cwd.trim())) {
         mergedOptions.cwd = workspaceCwd;
@@ -194,7 +220,7 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
         description: "List known Qoder models, capabilities, limits, and price multipliers.",
         args: {},
         async execute() {
-          const models = listModels();
+          const models = listModels(modelEnvironment, modelOptions);
           const lines = ["Qoder Models"];
           for (const model of models) {
             lines.push(`  ${safeDisplay(model.id, "unknown", 256)}: ${safeDisplay(model.name, "unknown", 512)}`);

@@ -17,7 +17,16 @@ const { isDebugEnabled, describeError, redactSensitiveText } = await import(DIST
 const { handleSdkMessage, QoderLanguageModel } = await import(DIST + "language-model.js");
 const { ensureQoderSession, getQoderSession, getQoderSessionForCwd, deleteQoderSession } = await import(DIST + "session-store.js");
 const { buildPromptString, buildPromptIterable } = await import(DIST + "prompt-builder.js");
-const { selectEnabledModels, applyLiveModelUpdates, getModel, listModels } = await import(DIST + "models.js");
+const {
+  selectEnabledModels,
+  applyLiveModelUpdates,
+  getCachedDynamicModels,
+  fetchDynamicModels,
+  getModel,
+  listModels,
+  flushModelCache,
+  setModelDiscoveryQueryFactory,
+} = await import(DIST + "models.js");
 
 describe("typed errors", () => {
   test("subclasses expose stable codes and names", () => {
@@ -653,10 +662,21 @@ describe("model catalog selection", () => {
     assert.deepEqual(filtered, []);
   });
 
+  test("deduplicates and bounds live catalog entries", () => {
+    const entries = Array.from({ length: 600 }, (_, index) => entry(`bounded-${index}`));
+    entries.splice(10, 0, entry("bounded-0", { displayName: "duplicate" }));
+    const kept = selectEnabledModels(entries);
+    assert.equal(kept.length, 512);
+    assert.equal(kept.filter((model) => model.value === "bounded-0").length, 1);
+  });
+
   test("discovery uses the live fetch strategy with cache fallback in the SDK", async () => {
     const src = await import("node:fs").then((fs) => fs.promises.readFile(DIST + "models.js", "utf8"));
     assert.match(src, /fetchStrategy:\s*"live"/, "must request live catalog");
     assert.doesNotMatch(src, /fetchStrategy:\s*"cache"/, "must not serve stale cache as first choice");
+    assert.match(src, /initializationResult\(\)/, "must complete SDK initialization before discovery");
+    assert.doesNotMatch(src, /qodercli --list-models/, "model discovery must not require a manual qodercli refresh");
+    assert.match(src, /Worker is the normal path/, "must prefer the SDK runtime");
   });
 
   test("live catalog snapshots remove models that are no longer available", () => {
@@ -669,6 +689,82 @@ describe("model catalog selection", () => {
     applyLiveModelUpdates([entry("audit-model-current", { displayName: "Current model" })]);
     assert.equal(getModel("audit-model-old"), undefined);
     assert.equal(listModels().some((model) => model.id === "audit-model-old"), false);
+  });
+
+  test("isolates catalogs by credential context", async () => {
+    const accountA = { QODER_PERSONAL_ACCESS_TOKEN: "pat-account-a" };
+    const accountB = { QODER_PERSONAL_ACCESS_TOKEN: "pat-account-b" };
+    applyLiveModelUpdates([entry("account-a-model")], accountA);
+    applyLiveModelUpdates([entry("account-b-model")], accountB);
+
+    assert.deepEqual(getCachedDynamicModels(accountA)?.map((model) => model.id), ["account-a-model"]);
+    assert.deepEqual(getCachedDynamicModels(accountB)?.map((model) => model.id), ["account-b-model"]);
+    await flushModelCache();
+  });
+
+  test("plugin config waits for a live SDK catalog without a manual CLI refresh", async () => {
+    const calls = [];
+    setModelDiscoveryQueryFactory((input) => {
+      calls.push(input.options);
+      const query = {
+        async initializationResult() { return {}; },
+        async getAvailableModels() {
+          return [entry("clean-start-model", { displayName: "Clean Start Model" })];
+        },
+        async return() { return { done: true }; },
+        async next() { return { done: true }; },
+        [Symbol.asyncIterator]() { return this; },
+      };
+      return query;
+    });
+    try {
+      const plugin = (await import(DIST + "index.js")).default;
+      const instance = await plugin();
+      const config = {
+        provider: {
+          qoder: {
+            options: {
+              env: { QODER_PERSONAL_ACCESS_TOKEN: "pat-clean-start" },
+            },
+          },
+        },
+      };
+      await instance.config(config);
+      assert.ok(config.provider.qoder.models["clean-start-model"]);
+      assert.ok(calls.some((options) => options.pathToQoderCLIExecutable === undefined));
+    } finally {
+      setModelDiscoveryQueryFactory();
+    }
+  });
+
+  test("discovery deadline aborts a late SDK response", async () => {
+    let aborts = 0;
+    let returns = 0;
+    setModelDiscoveryQueryFactory((input) => {
+      input.options.abortController.signal.addEventListener("abort", () => { aborts += 1; }, { once: true });
+      return {
+        async initializationResult() { return {}; },
+        async getAvailableModels() {
+          return new Promise((resolve) => setTimeout(() => resolve([entry("late-model")]), 1_000));
+        },
+        async return() { returns += 1; return { done: true }; },
+        async next() { return { done: true }; },
+        [Symbol.asyncIterator]() { return this; },
+      };
+    });
+    const environment = { QODER_PERSONAL_ACCESS_TOKEN: "pat-timeout" };
+    try {
+      const started = Date.now();
+      const result = await fetchDynamicModels(true, environment, { timeoutMs: 300 });
+      assert.ok(Date.now() - started < 900, "discovery must respect its host deadline");
+      assert.equal(result, null);
+      assert.ok(aborts >= 1, "timeout must abort the SDK query");
+      assert.ok(returns >= 1, "timeout must request SDK cleanup");
+      await new Promise((resolve) => setTimeout(resolve, 1_050));
+      assert.equal(getCachedDynamicModels(environment), null, "late results must not populate the cache");
+    } finally {
+      setModelDiscoveryQueryFactory();
+    }
   });
 });
 

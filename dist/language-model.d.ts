@@ -1,5 +1,6 @@
 import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3GenerateResult, LanguageModelV3StreamPart, LanguageModelV3StreamResult } from "@ai-sdk/provider";
 import type { SDKArtifactInfo, SDKPlanModeSnapshot } from "@qoder-ai/qoder-agent-sdk";
+import type { ModelDiscoveryOptions } from "./models.js";
 import type { QoderBridgeOptions } from "./types.js";
 type StreamController = ReadableStreamDefaultController<LanguageModelV3StreamPart>;
 type OpenBlock = {
@@ -46,6 +47,8 @@ interface StreamState {
     artifacts: SDKArtifactInfo[];
     planMode?: SDKPlanModeSnapshot;
     skillEvolution?: Record<string, unknown>;
+    modelEnvironment?: Record<string, string | undefined>;
+    modelDiscoveryOptions?: ModelDiscoveryOptions;
 }
 export declare function isProviderExecutedTool(name: string, functionToolNames: ReadonlySet<string>): boolean;
 export declare class QoderLanguageModel implements LanguageModelV3 {

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.10] - 2026-08-30
+
+### Changed
+
+- Model discovery now completes a bounded live Qoder catalog lookup during
+  plugin startup, so newly available account models are registered
+  automatically without a manual model list or cache warm-up restart.
+- Discovery uses the SDK's bundled Worker runtime first, falls back to an
+  installed CLI automatically when needed, scopes caches by deployment and
+  credential context, and ignores empty or late responses that could otherwise
+  replace a known-good catalog.
+
 ## [0.1.9] - 2026-08-30
 
 ### Added
@@ -211,3 +223,4 @@ also verified with an in-process MCP transport.
 [0.1.5]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.4...v0.1.5
 [0.1.8]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.7...v0.1.8
 [0.1.9]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.8...v0.1.9
+[0.1.10]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.9...v0.1.10
