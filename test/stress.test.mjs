@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { isAuthenticated } from "../dist/auth.js";
 
 process.env.QODER_BRIDGE_STATE_DIR = mkdtempSync(join(tmpdir(), "qoder-stress-"));
 
@@ -87,7 +88,12 @@ describe("prompt-builder stress & algorithmic correctness", () => {
 });
 
 describe("stream abort & cancellation stress", () => {
-  test("concurrent aborted streams do not throw unhandled rejection or error", async () => {
+  const hasQoderCredential = Boolean(process.env.QODER_PERSONAL_ACCESS_TOKEN?.trim()) || isAuthenticated();
+  const liveStressEnabled = process.env.QODER_STRESS_E2E === "1";
+
+  test("concurrent aborted streams do not throw unhandled rejection or error", {
+    skip: !(liveStressEnabled && hasQoderCredential),
+  }, async () => {
     const { QoderLanguageModel } = await import(DIST + "language-model.js");
     const lm = new QoderLanguageModel("auto");
     await Promise.all(

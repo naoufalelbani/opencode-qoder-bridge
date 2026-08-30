@@ -55,6 +55,7 @@ All notable changes to this project are documented here. The format follows
 - **Prompt Serialization Hardening**: Added non-image file attachment serialization in `prompt-builder` so attached text files are preserved, and safely guarded missing `toolCallId` / `toolName`.
 - **TUI & CLI Hardening**: Guarded `latest.model?.providerID` in `tui.ts` against undefined model objects, guarded against non-finite costs (`NaN`) in sidebar and statusline, and trimmed PAT whitespace in `hasQoderPAT()`.
 - **Stress Test Suite**: Added `test/stress.test.mjs` verifying concurrency, massive conversations (1,000 messages), stream aborts, and prototype pollution protection.
+- **CI-Safe Live Stress Coverage**: Made the Qoder-backed stream-abort stress probe opt-in with `QODER_STRESS_E2E=1`, keeping the normal test suite credential-free while preserving live stress coverage when explicitly enabled.
 
 ## [0.1.8] - 2026-08-26
 

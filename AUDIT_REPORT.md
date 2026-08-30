@@ -246,7 +246,7 @@ Latest deterministic run after the final source/test changes:
 | Command/check | Result |
 | --- | --- |
 | `npm run typecheck` | Passed |
-| `npm test` | Passed: 140 total, 139 passed, 1 skipped, 0 failed |
+| `npm test` | Passed: 140 total, 138 passed, 2 skipped, 0 failed; the Qoder-backed stress probe is now opt-in with `QODER_STRESS_E2E=1` |
 | `QODER_E2E=1 npm run test:e2e` | Blocked by upstream Qoder error 118: the authenticated account reached its credit usage limit; no bridge assertion completed |
 | `npm audit --audit-level=low` | Passed: 0 vulnerabilities |
 | `npm audit --omit=dev --audit-level=low` | Passed: 0 vulnerabilities |
