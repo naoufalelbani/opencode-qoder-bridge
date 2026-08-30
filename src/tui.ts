@@ -2,6 +2,7 @@ import type { TuiPlugin, TuiPluginModule } from "@opencode-ai/plugin/tui";
 import { jsx, jsxs } from "@opentui/solid/jsx-runtime";
 import { createEffect, Show, createSignal } from "solid-js";
 import { getLiveUsage } from "./usage.js";
+import { debug, describeError } from "./logger.js";
 
 const REFRESH_MS = 30_000;
 const POST_TURN_REFRESH_MS = 5_000;
@@ -16,16 +17,18 @@ type QuotaView = {
 };
 
 function formatCredits(value: number): string {
-  return Number.isInteger(value)
-    ? value.toString()
-    : value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const safe = Number.isFinite(value) && value >= 0 ? value : 0;
+  return Number.isInteger(safe)
+    ? safe.toString()
+    : safe.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 function formatSessionCredits(value: number): string {
-  return value.toFixed(2);
+  return (Number.isFinite(value) && value >= 0 ? value : 0).toFixed(2);
 }
 
-function usesQoder(api: Parameters<TuiPlugin>[0], sessionID: string): boolean {
+function usesQoder(api: Parameters<TuiPlugin>[0], sessionID: string | undefined): boolean {
+  if (!sessionID) return false;
   const session = api.state.session.get(sessionID);
   if (session?.model) return session.model.providerID === "qoder";
 
@@ -34,42 +37,54 @@ function usesQoder(api: Parameters<TuiPlugin>[0], sessionID: string): boolean {
   if (!latest) return false;
 
   return latest.role === "user"
-    ? latest.model.providerID === "qoder"
+    ? latest.model?.providerID === "qoder"
     : latest.providerID === "qoder";
 }
 
 function formatQuota(usage: Awaited<ReturnType<typeof getLiveUsage>>): QuotaView {
   const quota = usage?.userQuota;
-  if (!usage || !quota || quota.total == null) {
+  if (!usage || !quota || typeof quota.total !== "number" || !Number.isFinite(quota.total) || quota.total < 0) {
     return {
       error: "usage unavailable",
       warning: true,
     };
   }
 
-  const used = quota.used ?? Math.max(0, quota.total - (quota.remaining ?? quota.total));
-  const remaining = quota.remaining ?? Math.max(0, quota.total - used);
-  const percent =
-    quota.percentage ??
-    usage.totalUsagePercentage ??
-    (quota.total > 0 ? (used / quota.total) * 100 : 0);
+  const total = quota.total;
+  const used = Math.min(total, Math.max(0, typeof quota.used === "number" && Number.isFinite(quota.used)
+    ? quota.used
+    : total - (typeof quota.remaining === "number" && Number.isFinite(quota.remaining) ? quota.remaining : total)));
+  const remaining = Math.max(0, total - used);
+  const percentValue = typeof quota.percentage === "number" && Number.isFinite(quota.percentage)
+    ? quota.percentage
+    : typeof usage.totalUsagePercentage === "number" && Number.isFinite(usage.totalUsagePercentage)
+      ? usage.totalUsagePercentage
+      : total > 0 ? (used / total) * 100 : 0;
+  const percent = Math.min(100, Math.max(0, percentValue));
 
   return {
     used,
-    total: quota.total,
+    total,
     remaining,
     percent,
-    warning: usage.isQuotaExceeded === true || remaining <= Math.max(10, quota.total * 0.1),
+    warning: usage.isQuotaExceeded === true || remaining <= Math.max(10, total * 0.1),
   };
 }
 
 function sessionSpent(api: Parameters<TuiPlugin>[0], sessionID: string): number {
+  if (!sessionID) return 0;
   const sessionCost = api.state.session.get(sessionID)?.cost;
-  if (typeof sessionCost === "number") return sessionCost;
+  if (typeof sessionCost === "number" && Number.isFinite(sessionCost)) return sessionCost;
 
   return api.state.session
     .messages(sessionID)
-    .reduce((total, message) => total + (message.role === "assistant" ? message.cost : 0), 0);
+    .reduce((total, message) => {
+      if (message.role === "assistant" && typeof message.cost === "number" && Number.isFinite(message.cost)) {
+        const next = total + message.cost;
+        return Number.isFinite(next) ? next : Number.MAX_SAFE_INTEGER;
+      }
+      return total;
+    }, 0);
 }
 
 function estimatedSessionCredits(api: Parameters<TuiPlugin>[0], sessionID: string): number {
@@ -77,7 +92,8 @@ function estimatedSessionCredits(api: Parameters<TuiPlugin>[0], sessionID: strin
   // cent-denominated units. The personal-account SDK exposes only a rounded
   // whole-account quota, so session.cost * 100 is the best fractional signal
   // available until the SDK exposes per-request credit events.
-  return sessionSpent(api, sessionID) * 100;
+  const estimate = sessionSpent(api, sessionID) * 100;
+  return Number.isFinite(estimate) ? estimate : Number.MAX_SAFE_INTEGER;
 }
 
 export const id = "opencode-qoder-bridge-sidebar";
@@ -115,6 +131,10 @@ export const tui: TuiPlugin = async (api) => {
     try {
       setQuota(formatQuota(await getLiveUsage(true)));
       refreshedAt = Date.now();
+    } catch (error) {
+      refreshedAt = Date.now();
+      setQuota({ error: "usage unavailable", warning: true });
+      debug("TUI quota refresh failed:", describeError(error));
     } finally {
       refreshing = false;
     }
@@ -140,7 +160,7 @@ export const tui: TuiPlugin = async (api) => {
   }, REFRESH_MS);
   let postTurnTimer: ReturnType<typeof setTimeout> | undefined;
   const stopIdleRefresh = api.event.on("session.idle", (event) => {
-    if (!usesQoder(api, event.properties.sessionID)) return;
+    if (!usesQoder(api, event?.properties?.sessionID)) return;
 
     void refresh();
     clearTimeout(postTurnTimer);
@@ -149,6 +169,7 @@ export const tui: TuiPlugin = async (api) => {
   api.lifecycle.onDispose(() => {
     clearInterval(timer);
     clearTimeout(postTurnTimer);
+    sessionBaselines.clear();
     stopIdleRefresh();
   });
 

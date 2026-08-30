@@ -1,6 +1,16 @@
 import type { LanguageModelV3, LanguageModelV3CallOptions, LanguageModelV3GenerateResult, LanguageModelV3StreamPart, LanguageModelV3StreamResult } from "@ai-sdk/provider";
+import type { SDKArtifactInfo, SDKPlanModeSnapshot } from "@qoder-ai/qoder-agent-sdk";
 import type { QoderBridgeOptions } from "./types.js";
 type StreamController = ReadableStreamDefaultController<LanguageModelV3StreamPart>;
+type OpenBlock = {
+    kind: "reasoning" | "text";
+    index: number;
+} | {
+    kind: "tool";
+    index: number;
+    id: string;
+    providerExecuted: boolean;
+};
 interface StreamState {
     controller: StreamController;
     contextWindow: number;
@@ -12,7 +22,9 @@ interface StreamState {
         name: string;
         input: string;
         providerExecuted: boolean;
+        hasInput: boolean;
     }>;
+    openBlocks: OpenBlock[];
     sawStreamText: boolean;
     sawStreamTool: boolean;
     sawStreamReasoning: boolean;
@@ -23,7 +35,17 @@ interface StreamState {
     }>;
     lastStopReason: string | null;
     blockCounter: number;
+    outputChars: number;
     finished: boolean;
+    resultReceived: boolean;
+    seenToolCallIds?: Set<string>;
+    seenMessageIds?: Set<string>;
+    failed?: boolean;
+    authExpired?: boolean;
+    invalidSession?: boolean;
+    artifacts: SDKArtifactInfo[];
+    planMode?: SDKPlanModeSnapshot;
+    skillEvolution?: Record<string, unknown>;
 }
 export declare function isProviderExecutedTool(name: string, functionToolNames: ReadonlySet<string>): boolean;
 export declare class QoderLanguageModel implements LanguageModelV3 {

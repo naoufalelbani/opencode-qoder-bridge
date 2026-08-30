@@ -23,9 +23,10 @@ interface PersistedState {
     }>;
     recent: TurnCost[];
 }
+export declare function flushLedgerSync(): void;
 export interface RecordInput {
     model: string;
-    usage: {
+    usage?: {
         input_tokens?: number | null;
         output_tokens?: number | null;
         cache_read_input_tokens?: number | null;

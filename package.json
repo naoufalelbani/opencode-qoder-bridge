@@ -1,6 +1,6 @@
 {
   "name": "opencode-qoder-bridge",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Qoder provider plugin for OpenCode powered by the official Qoder Agent SDK, with streaming, tools, MCP, sessions, multimodal input, and quota tracking.",
   "keywords": [
     "opencode",
@@ -56,6 +56,10 @@
     "./tui": {
       "types": "./dist/tui.d.ts",
       "default": "./dist/tui.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "default": "./dist/errors.js"
     }
   },
   "scripts": {
@@ -65,16 +69,17 @@
     "test:e2e": "npm run build && node --test test/e2e.test.mjs",
     "audit": "npm audit --audit-level=low",
     "check": "npm run typecheck && npm test && npm run audit",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@qoder-ai/qoder-agent-sdk": "1.0.25",
+    "@opencode-ai/plugin": "1.18.19",
+    "@qoder-ai/qoder-agent-sdk": "1.0.30",
     "jsonc-parser": "^3.3.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@ai-sdk/provider": "^3.0.14",
-    "@opencode-ai/plugin": "1.18.19",
     "@opentui/solid": "0.5.4",
     "@types/node": "^22.10.0",
     "solid-js": "1.9.12",
@@ -106,7 +111,10 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "allowScripts": {
-    "@qoder-ai/qoder-agent-sdk@1.0.25": true,
+    "@qoder-ai/qoder-agent-sdk@1.0.30": true,
     "msgpackr-extract@3.0.4": true
+  },
+  "directories": {
+    "test": "test"
   }
 }

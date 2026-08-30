@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.9] - 2026-08-30
+
+### Added
+
+- Updated `@qoder-ai/qoder-agent-sdk` to `1.0.30` (paired with `qodercli` 1.1.35).
+- **Plan Mode Integration**: Added `planMode?: boolean` provider option to run in planning mode independently from tool permissions. Registered new `/qoder_plan_mode` tool.
+- **Outbound Proxy Routing**: Added `proxy?: string` provider option for direct qodercli HTTP/HTTPS/SOCKS5 proxy routing without mutating environment variables, with automatic fallback to `HTTPS_PROXY` / `HTTP_PROXY`.
+- **Skill Evolution**: Added `evolution?: EvolutionOptions` provider option to enable autonomous turn-completion skill analysis and recommendations.
+- **Dynamic Live Model Catalog Updates**: Ingests real-time `available_models_update` stream events to synchronize model availability and persistent cache without restarting OpenCode.
+- **Artifacts Tracking**: Ingests `artifacts_update` events during chat turns and surfaces artifact change metadata in `providerMetadata.qoder.artifacts`.
+- **Sessions Tool**: Added `qoder_sessions` tool using SDK's `listSessions()` to inspect recent sessions, titles, and git branches.
+
+### Fixed
+
+- **Runtime Package Boundary**: Moved the runtime-used `@opencode-ai/plugin`
+  helper into production dependencies and verified root/provider imports from a
+  dev-omitted packed install.
+- **Workspace-Aware Session Safety**: Scoped persisted session mappings by
+  workspace, serialized same-key turns, delayed mapping writes until a
+  successful turn, and added bounded cross-process state locking.
+- **Catalog, Usage, and Stream Hardening**: Made live model snapshots
+  authoritative, bounded discovery/usage requests, closed abort and duplicate
+  event races, sanitized malformed SDK usage/metadata, and surfaced typed
+  authentication/result failures.
+- **Persistent State and Input Bounds**: Hardened atomic state/config writes,
+  model/session cache validation, prompt/image limits, MCP URL/command input,
+  and finite cost/statusline accounting.
+- **Unknown Model Transparency**: Unknown requested model IDs are now forwarded
+  unchanged to Qoder while the default catalog entry is used only for prompt
+  sizing metadata; the bridge no longer silently selects `auto`.
+- **Ephemeral Session Privacy**: Explicitly disables SDK transcript persistence
+  for non-persistent turns and auxiliary usage/model discovery queries.
+- **Stream and Boundary Hardening**: Added bounded turn timeouts, abort-aware
+  generation failures, bounded query cleanup, malformed-stream rejection,
+  replay UUID guards, tool ownership deny rules, diagnostic redaction, and
+  stricter MCP URL/command validation.
+- **Release Artifact Safety**: Added a `prepack` rebuild hook, executable usage
+  CLI permissions, and a public `./errors` export for the typed error API.
+- **Session Store Concurrency Race Condition**: Added an async mutex queue (`withLock`) to serialize concurrent `ensureQoderSession` and `deleteQoderSession` operations, preventing dropped session records under parallel turns.
+- **Tool Continuation History Trimming**: Fixed a critical bug in `trimToBudget` where the active user prompt was dropped during continuation turns with large assistant/tool outputs, preventing prompts from falling back to `"Hello"`.
+- **Data URL Parsing Hardening**: Added bounded-length and round-trip base64 validation with early rejection of oversized image attachments, preventing avoidable CPU and memory pressure from malformed multi-megabyte inputs.
+- **Stream Controller Abort Safety & Listener Cleanup**: Added `safeEnqueue` and `safeClose` to prevent uncaught `Invalid state: Controller is already closed` exceptions when streams are aborted or cancelled, and cleaned up `abortSignal` event listeners in `language-model.ts` and `sdk-session.ts` to prevent memory leaks on shared signals.
+- **`doGenerate` Provider Metadata**: Fixed `doGenerate` discarding `providerMetadata` (`totalCostUSD`, `contextUsageRatio`, `planMode`, `artifacts`), ensuring parity with `doStream`.
+- **Coalesced Model Cache Writes**: Implemented a coalesced cache write queue in `models.ts` to prevent simultaneous file write contention and eliminate orphaned `.tmp` files under rapid streaming catalog updates.
+- **Atomic File Cleanup & All-Session Reset**: Added `try...finally` temporary file unlinking in `session-store.ts` and `models.ts` to guarantee zero dangling `.tmp` files, and exported `clearAllSessions()` to support full session resets.
+- **Tool Schema & Error Boundaries**: Upgraded plugin tools with `tool()` and `tool.schema` from `@opencode-ai/plugin`, added `key` (and `"all"`) to `qoder_session_reset`, added `dir` and `limit` filtering to `qoder_sessions`, and wrapped tool executions in error boundaries.
+- **Tool Normalization & Path Aliases**: Added `execute_command`, `executecommand`, `run_command`, and `runcommand` mapping to `bash`, added `cmd` alias for command, and added `path` alias for `filePath` across read, write, edit, delete, view, and apply_diff.
+- **MCP Bridge Argument Flexibility**: Converted numeric and boolean arguments in `mcp-bridge` stdio configs without dropping the argument list.
+- **Prompt Serialization Hardening**: Added non-image file attachment serialization in `prompt-builder` so attached text files are preserved, and safely guarded missing `toolCallId` / `toolName`.
+- **TUI & CLI Hardening**: Guarded `latest.model?.providerID` in `tui.ts` against undefined model objects, guarded against non-finite costs (`NaN`) in sidebar and statusline, and trimmed PAT whitespace in `hasQoderPAT()`.
+- **Stress Test Suite**: Added `test/stress.test.mjs` verifying concurrency, massive conversations (1,000 messages), stream aborts, and prototype pollution protection.
+
 ## [0.1.8] - 2026-08-26
 
 ### Fixed
@@ -78,7 +130,9 @@ All notable changes to this project are documented here. The format follows
   session.
 - The `models.json` cache is written atomically with mode 0600 instead of a
   direct partial-write-prone write.
-- Unknown model IDs fall back to the default model with a debug log entry.
+- Unknown model IDs previously fell back to the default model with a debug log
+  entry; current releases preserve the requested ID and let Qoder report model
+  availability explicitly.
 
 ## [0.1.3] - 2026-08-20
 
@@ -155,3 +209,4 @@ also verified with an in-process MCP transport.
 [0.1.4]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.3...v0.1.4
 [0.1.5]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.4...v0.1.5
 [0.1.8]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.7...v0.1.8
+[0.1.9]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.8...v0.1.9

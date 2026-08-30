@@ -2,14 +2,21 @@ import { query } from "@qoder-ai/qoder-agent-sdk";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
 import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolveStateDir } from "./state-dir.js";
 import { debug, describeError } from "./logger.js";
+import { closeAsyncIterator, withTimeout } from "./async-utils.js";
 const CONTEXT = 200_000;
 const OUTPUT = 32_000;
+const MAX_MODEL_CACHE_BYTES = 1_000_000;
+const MAX_MODEL_TOKENS = 10_000_000;
+const MAX_PRICE_FACTOR = 1_000_000;
+const FETCH_TIMEOUT_MS = 30_000;
+const CLEANUP_GRACE_MS = 5_000;
+const UNSAFE_IDS = new Set(["__proto__", "prototype", "constructor"]);
 function def(id, name, multiplier, opts = {}) {
     return {
         id,
@@ -36,8 +43,8 @@ export const DEFAULT_MODEL_ID = "auto";
 const MODEL_INDEX = new Map(FALLBACK_MODELS.map((m) => [m.id, m]));
 const STATE_DIR = resolveStateDir();
 const MODEL_CACHE_FILE = join(STATE_DIR, "models.json");
-function addToIndex(m) {
-    MODEL_INDEX.set(m.id, {
+function toModelDef(m) {
+    return {
         id: m.id,
         name: m.name,
         multiplier: m.cost.input,
@@ -51,7 +58,16 @@ function addToIndex(m) {
             cacheWrite: m.cost.cache_write,
         },
         limit: m.limit,
-    });
+    };
+}
+function rebuildIndex(models) {
+    MODEL_INDEX.clear();
+    for (const model of FALLBACK_MODELS)
+        MODEL_INDEX.set(model.id, model);
+    for (const model of models) {
+        const def = toModelDef(model);
+        MODEL_INDEX.set(model.id, def);
+    }
 }
 export function getModel(id) {
     return MODEL_INDEX.get(id);
@@ -62,18 +78,29 @@ export function getModel(id) {
  * never hides a model the server actually serves.
  */
 export function selectEnabledModels(models) {
-    return models.filter((m) => !!m && typeof m.value === "string" && m.value.length > 0 && m.isEnabled !== false);
+    if (!Array.isArray(models))
+        return [];
+    return models.filter((m) => {
+        if (!m || typeof m !== "object" || Array.isArray(m))
+            return false;
+        const value = m.value;
+        return typeof value === "string"
+            && value.trim().length > 0
+            && value.length <= 256
+            && !UNSAFE_IDS.has(value)
+            && m.isEnabled !== false;
+    });
 }
 function mapModelInfo(m) {
-    const factor = m.priceFactor ?? 1.0;
-    const context = m.maxInputTokens ?? CONTEXT;
-    const output = m.maxOutputTokens ?? OUTPUT;
-    const vl = m.isVl ?? true;
+    const factor = finiteNonNegative(m.priceFactor, 1.0);
+    const context = finitePositiveInteger(m.maxInputTokens, CONTEXT);
+    const output = finitePositiveInteger(m.maxOutputTokens, OUTPUT);
+    const vl = m.isVl === undefined ? true : m.isVl === true;
     return {
         id: m.value,
-        name: m.displayName,
+        name: typeof m.displayName === "string" && m.displayName.trim() ? m.displayName.trim().slice(0, 1024) : m.value,
         attachment: vl,
-        reasoning: m.isReasoning ?? false,
+        reasoning: m.isReasoning === true,
         toolCall: true,
         limit: { context, output },
         cost: {
@@ -88,25 +115,70 @@ function mapModelInfo(m) {
         },
     };
 }
+function finiteNonNegative(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_PRICE_FACTOR ? value : fallback;
+}
+function finitePositiveInteger(value, fallback) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > MAX_MODEL_TOKENS)
+        return fallback;
+    const normalized = Math.floor(value);
+    return normalized > 0 ? normalized : fallback;
+}
+function validCachedModel(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return false;
+    const model = value;
+    if (typeof model.id !== "string" || model.id.length === 0 || model.id.length > 256 || UNSAFE_IDS.has(model.id))
+        return false;
+    if (typeof model.name !== "string" || model.name.length === 0 || model.name.length > 1024)
+        return false;
+    if (typeof model.attachment !== "boolean" || typeof model.reasoning !== "boolean" || typeof model.toolCall !== "boolean")
+        return false;
+    const limit = model.limit;
+    if (!limit || typeof limit !== "object" || Array.isArray(limit))
+        return false;
+    const l = limit;
+    if (finitePositiveInteger(l.context, 0) === 0 || finitePositiveInteger(l.output, 0) === 0)
+        return false;
+    const cost = model.cost;
+    if (!cost || typeof cost !== "object" || Array.isArray(cost))
+        return false;
+    const c = cost;
+    if (![c.input, c.output, c.cache_read, c.cache_write].every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= MAX_PRICE_FACTOR))
+        return false;
+    const modalities = model.modalities;
+    if (!modalities || typeof modalities !== "object" || Array.isArray(modalities))
+        return false;
+    const modes = modalities;
+    return [modes.input, modes.output].every((items) => Array.isArray(items) && items.every((item) => typeof item === "string" && item.length <= 64));
+}
+/**
+ * Dynamically apply live model updates received from SDK streaming events
+ * (`available_models_update`). Updates the in-memory index and cache file.
+ */
+export function applyLiveModelUpdates(models) {
+    const enabled = selectEnabledModels(models);
+    const mapped = enabled.map(mapModelInfo);
+    cachedDynamicModels = mapped;
+    rebuildIndex(mapped);
+    void queueModelCacheWrite(mapped);
+    debug(`Live model update: refreshed ${mapped.length} models`);
+    return getCachedDynamicModels() ?? [];
+}
 let cachedDynamicModels = loadCachedModels();
 function loadCachedModels() {
     try {
         if (!existsSync(MODEL_CACHE_FILE))
             return null;
+        const info = lstatSync(MODEL_CACHE_FILE);
+        if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_MODEL_CACHE_BYTES)
+            return null;
         const parsed = JSON.parse(readFileSync(MODEL_CACHE_FILE, "utf8"));
         if (!Array.isArray(parsed))
             return null;
-        const models = parsed.filter((m) => {
-            if (!m || typeof m !== "object")
-                return false;
-            const x = m;
-            return typeof x.id === "string" && typeof x.name === "string" && typeof x.attachment === "boolean"
-                && typeof x.reasoning === "boolean" && typeof x.toolCall === "boolean" && typeof x.limit === "object"
-                && typeof x.cost === "object" && typeof x.modalities === "object";
-        });
-        for (const model of models)
-            addToIndex(model);
-        return models.length > 0 ? models : null;
+        const models = parsed.filter(validCachedModel);
+        rebuildIndex(models);
+        return models;
     }
     catch (error) {
         debug("Model cache unreadable; using fallback catalog:", describeError(error));
@@ -117,12 +189,17 @@ export function listModels() {
     return [...MODEL_INDEX.values()].map((m) => ({ ...m, cost: { ...m.cost }, limit: { ...m.limit } }));
 }
 export function getCachedDynamicModels() {
-    return cachedDynamicModels;
+    return cachedDynamicModels?.map((model) => ({
+        ...model,
+        limit: { ...model.limit },
+        cost: { ...model.cost },
+        modalities: { input: [...model.modalities.input], output: [...model.modalities.output] },
+    })) ?? null;
 }
 let inflightFetch = null;
 export async function fetchDynamicModels(force = false) {
     if (cachedDynamicModels && !force)
-        return cachedDynamicModels;
+        return getCachedDynamicModels();
     if (inflightFetch)
         return inflightFetch;
     inflightFetch = doFetchDynamicModels().finally(() => {
@@ -131,14 +208,50 @@ export async function fetchDynamicModels(force = false) {
     return inflightFetch;
 }
 async function writeCacheFile(models) {
-    mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+    let temporary;
     try {
-        chmodSync(STATE_DIR, 0o700);
+        mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
+        try {
+            chmodSync(STATE_DIR, 0o700);
+        }
+        catch { /* best-effort */ }
+        temporary = join(STATE_DIR, `.models.${process.pid}.${randomUUID()}.tmp`);
+        await writeFile(temporary, JSON.stringify(models, null, 2) + "\n", { mode: 0o600 });
+        renameSync(temporary, MODEL_CACHE_FILE);
+        temporary = undefined;
     }
-    catch { /* best-effort */ }
-    const temporary = join(STATE_DIR, `.models.${process.pid}.${randomUUID()}.tmp`);
-    await writeFile(temporary, JSON.stringify(models, null, 2) + "\n", { mode: 0o600 });
-    renameSync(temporary, MODEL_CACHE_FILE);
+    finally {
+        if (temporary) {
+            try {
+                unlinkSync(temporary);
+            }
+            catch { /* best-effort */ }
+        }
+    }
+}
+let pendingModelsToWrite = null;
+let activeWritePromise = null;
+async function processCacheWrite() {
+    while (pendingModelsToWrite !== null) {
+        const toWrite = pendingModelsToWrite;
+        pendingModelsToWrite = null;
+        try {
+            await writeCacheFile(toWrite);
+        }
+        catch (error) {
+            debug("Model cache write failed:", describeError(error));
+        }
+    }
+    activeWritePromise = null;
+}
+export function queueModelCacheWrite(models) {
+    pendingModelsToWrite = models;
+    activeWritePromise ??= processCacheWrite();
+    return activeWritePromise;
+}
+export async function flushModelCache() {
+    if (activeWritePromise)
+        await activeWritePromise;
 }
 async function doFetchDynamicModels() {
     const cli = findQoderCLI();
@@ -146,8 +259,11 @@ async function doFetchDynamicModels() {
         return null;
     let q;
     const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), FETCH_TIMEOUT_MS);
+    if (typeof timeout.unref === "function")
+        timeout.unref();
     const sceneEnv = process.env.QODER_SCENE
-        ? { env: { QODER_SCENE: process.env.QODER_SCENE } }
+        ? { env: { ...process.env, QODER_SCENE: process.env.QODER_SCENE } }
         : {};
     try {
         q = query({
@@ -156,6 +272,7 @@ async function doFetchDynamicModels() {
                 auth: qoderAuth(),
                 model: "auto",
                 abortController,
+                persistSession: false,
                 ...(cli ? { pathToQoderCLIExecutable: cli } : {}),
                 ...sceneEnv,
             },
@@ -164,32 +281,26 @@ async function doFetchDynamicModels() {
         // CLI's cached catalog when the server returns nothing. The previous
         // "cache" strategy could serve an empty or stale subset, which hid
         // models until a lucky refresh.
-        const models = await q.getAvailableModels({ fetchStrategy: "live" });
+        const models = await withTimeout(q.getAvailableModels({ fetchStrategy: "live" }), FETCH_TIMEOUT_MS, `Qoder model discovery exceeded ${FETCH_TIMEOUT_MS}ms`);
         if (!Array.isArray(models))
             return null;
         const enabled = selectEnabledModels(models);
         debug(`Model catalog: ${enabled.length} usable of ${models.length} reported`
             + (enabled.length === 0 ? "" : ` (${enabled.map((m) => m.value).join(", ")})`));
-        if (enabled.length === 0)
-            return null;
         cachedDynamicModels = enabled.map(mapModelInfo);
-        for (const m of cachedDynamicModels)
-            addToIndex(m);
-        await writeCacheFile(cachedDynamicModels).catch((error) => {
-            debug("Model cache write failed:", describeError(error));
-        });
-        return cachedDynamicModels;
+        rebuildIndex(cachedDynamicModels);
+        await queueModelCacheWrite(cachedDynamicModels);
+        return getCachedDynamicModels();
     }
     catch (error) {
         debug("Live model catalog unavailable; keeping cached/fallback models:", describeError(error));
         return null;
     }
     finally {
+        clearTimeout(timeout);
         abortController.abort();
-        try {
-            await q?.return(undefined);
-        }
-        catch { /* ignore */ }
+        if (q)
+            await closeAsyncIterator(q, CLEANUP_GRACE_MS);
     }
 }
 //# sourceMappingURL=models.js.map

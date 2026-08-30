@@ -2,5 +2,6 @@
 export declare function isDebugEnabled(): boolean;
 export declare function debug(message: string, ...details: unknown[]): void;
 export declare function warn(message: string, ...details: unknown[]): void;
+export declare function redactSensitiveText(value: string): string;
 export declare function describeError(error: unknown): string;
 //# sourceMappingURL=logger.d.ts.map

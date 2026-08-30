@@ -119,37 +119,23 @@ The ledger accumulates across sessions. Delete `~/.config/opencode-qoder-bridge/
 
 The bridge discovers the available catalog at startup through the SDK's
 `getAvailableModels()` API. Availability is account-, region-, rollout-, and
-SDK-version-dependent. A live query on **2026-08-20** returned:
+SDK-version-dependent. A permanent allowlist is intentionally not embedded
+here because the catalog is account- and scene-dependent.
 
-| Model ID | Name | Credit multiplier | Vision | Reasoning | Max input | Max output |
-|----------|------|-------------------|--------|-----------|-----------|------------|
+The following is the current model snapshot returned by `qodercli --list-models`
+on 2026-08-30:
 
-The following are known or historical model IDs. Some may be obsolete or
-unavailable for a particular account and are not an availability guarantee:
+| Model |
+|-------|
+| `Qwen3.8-Max` |
+| `Qwen3.8-Flash` |
+| `Qwen3.7-Max` |
+| `Qwen3.7-Plus` |
 
-| Model ID | Name | Credit multiplier | Vision | Reasoning | Max input | Max output |
-|----------|------|-------------------|--------|-----------|-----------|------------|
-| `auto` | Auto | 1.00x | ✓ | ✗ | 180K | 32K |
-| `ultimate` | Ultimate | 0.80x | ✓ | ✓ | 1M | 32K |
-| `performance` | Performance | 1.10x | ✓ | ✗ | 1M | 32K |
-| `efficient` | Efficient | 0.30x | ✓ | ✗ | 180K | 32K |
-| `lite` | Lite | 0.00x | ✗ | ✗ | 180K | 32K |
-| `cmodel` | Cantus | 1.60x | ✓ | ✓ | 180K | 32K |
-| `qmodel_preview` | Qwen3.8-Max-Preview | 0.01x promo | ✓ | ✓ | 180K | 32K |
-| `qmodel_38max` | Qwen3.8-Max | 0.25x | ✓ | ✓ | 180K | 32K |
-| `qmodel_latest` | Qwen3.7-Max | 0.10x promo | ✓ | ✗ | 1M | 32K |
-| `qmodel` | Qwen3.7-Plus | 0.04x promo | ✓ | ✗ | 1M | 32K |
-| `kmodel_latest` | Kimi-K3 | 0.80x | ✓ | ✗ | 180K | 32K |
-| `kmodel` | Kimi-K2.7-Code | 0.30x | ✓ | ✗ | 256K | 32K |
-| `gm51model` | GLM-5.2 | 0.50x promo | ✓ | ✓ | 1M | 32K |
-| `dmodel` | DeepSeek-V4-Pro | 0.50x | ✓ | ✓ | 1M | 32K |
-| `dfmodel` | DeepSeek-V4-Flash | 0.10x | ✓ | ✓ | 1M | 32K |
-| `mmodel` | MiniMax-M3 | 0.20x | ✓ | ✗ | 1M | 32K |
-
-This table is a snapshot, not a hard-coded allowlist. Qoder can vary model
-availability by account, plan, CLI version, or staged rollout. Promotional
-multipliers are time-dependent; the SDK's current `priceFactor` is
-authoritative. Restart OpenCode to refresh the bridge's in-process model cache.
+This is an account-, region-, plan-, CLI-version-, and rollout-dependent
+snapshot. The CLI command reports display names only; the bridge's SDK catalog
+is authoritative for model IDs, capabilities, context limits, and pricing.
+Run `qodercli --list-models` and restart OpenCode to refresh the local view.
 
 Run `opencode models qoder` to inspect the models currently registered with
 OpenCode. The `qoder_models` tool also exposes capabilities, context limits,
@@ -172,7 +158,13 @@ Bridge opencode MCP servers into the SDK by passing provider options:
 }
 ```
 
+Flag names may be written with or without the leading `--`.
+
 `config.mcp` servers are bridged into the SDK's `mcpServers` automatically.
+Chat turns have a 30-minute bridge timeout by default; set `options.timeoutMs`
+to a positive value to use a shorter or longer bounded timeout (up to 24 hours).
+Values in `options.env` override inherited process variables rather than
+replacing the complete child environment.
 
 ### Persistent sessions and permissions
 
@@ -194,9 +186,15 @@ Session persistence is opt-in. Give a provider configuration a stable
 
 Mappings are stored in
 `~/.config/opencode-qoder-bridge/sessions.json` with restrictive file
-permissions. Use the `qoder_session_reset` tool to forget the mapping. A new
-session is created automatically if the mapping does not exist; existing
-sessions are resumed through the Qoder SDK.
+permissions and are scoped to the configured working directory. The plugin
+uses OpenCode's project directory when available; set `options.cwd` when
+loading the provider directly. Use the `qoder_session_reset` tool to forget
+the mapping. A new session is created automatically if the mapping does not
+exist; existing sessions are resumed through the Qoder SDK.
+
+Qoder-native and bridged MCP tools remain provider-owned. If OpenCode supplies
+a function with a colliding native name, the bridge derives a Qoder deny rule
+to avoid executing the same operation in both runtimes.
 
 The bridge uses the SDK's safer permission policy by default. To explicitly
 allow all Qoder tools in a trusted local environment, configure for example:
@@ -218,6 +216,80 @@ Available permission modes are `default`, `acceptEdits`, and
 `bypassPermissions`. Only explicitly configure `bypassPermissions` when the
 host environment is trusted.
 
+Image inputs may reference `file://`, `~/`, or absolute local paths. Only pass
+paths from trusted callers: the bridge bounds image size but does not sandbox
+or restrict readable local files to the project directory. A current turn is
+limited to 64 images and 40 MiB of decoded image data; excess attachments are
+reported as omitted text.
+
+### Plan Mode
+
+Plan Mode instructs Qoder to analyze and plan changes without modifying files
+or running action tools. It operates independently from tool permissions,
+preserving your configured `permissionMode`:
+
+```json
+{
+  "provider": {
+    "qoder": {
+      "options": {
+        "planMode": true
+      }
+    }
+  }
+}
+```
+
+Run `/qoder_plan_mode` in OpenCode for quick guidance.
+
+### Proxy & Network Routing
+
+Pass an outbound proxy URL directly to the Qoder runtime without mutating host
+environment variables (supports `http://`, `https://`, `socks5://`, and `socks://`):
+
+```json
+{
+  "provider": {
+    "qoder": {
+      "options": {
+        "proxy": "http://127.0.0.1:8888"
+      }
+    }
+  }
+}
+```
+
+If `proxy` is omitted, the bridge automatically falls back to `HTTPS_PROXY` or
+`HTTP_PROXY` from your environment.
+
+### Skill Evolution
+
+Enable autonomous turn-completion skill analysis and recommendations:
+
+```json
+{
+  "provider": {
+    "qoder": {
+      "options": {
+        "evolution": {
+          "skill": { "mode": "native" }
+        }
+      }
+    }
+  }
+}
+```
+
+### Available Tools
+
+The plugin registers several built-in OpenCode tools:
+
+- `qoder_usage` — Live account balance, quota percentages, and local cost ledger totals.
+- `qoder_models` — List known Qoder models, context limits, vision/reasoning flags, and multipliers.
+- `qoder_sessions` — List recent Qoder sessions, session IDs, branches, and timestamps via SDK `listSessions()`.
+- `qoder_session_reset` — Forget the persisted Qoder session mapping for the active project.
+- `qoder_plan_mode` — View Plan Mode status and configuration guidance.
+
 ## Troubleshooting
 
 | Problem | Solution |
@@ -225,15 +297,16 @@ host environment is trusted.
 | Auth prompt at startup | Run `qoder login`, then restart opencode |
 | `qodercli not found` | Authenticate with `qoder login` or set `QODER_PERSONAL_ACCESS_TOKEN`; the SDK can use its bundled runtime, while an installed CLI is preferred when available |
 | Model not found | Verify the model ID matches the table above |
-| Missing models in the model list | Run `/qoder_models`; the bridge refreshes the live catalog at every startup and falls back to the last cached catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching opencode (or via provider option `env`) |
+| Missing models in the model list | Run `/qoder_models`; the bridge refreshes the live catalog at startup and falls back to the last cached catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching opencode |
 
 ### How model discovery works
 
 At startup the bridge immediately exposes cached/built-in models, then
 refreshes the live catalog from Qoder (`fetchStrategy: "live"` — the CLI
 re-queries the server and falls back to its local cache if the server returns
-nothing). Discovered models override built-ins with the same ID; a failed
-refresh never removes previously known models.
+nothing). Each successful catalog snapshot replaces previously discovered
+dynamic IDs, so retired models do not remain selectable. A failed refresh
+keeps the last known catalog and the built-ins.
 
 ## Development
 

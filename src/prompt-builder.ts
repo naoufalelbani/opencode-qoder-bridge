@@ -1,12 +1,17 @@
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, resolve } from "node:path";
+import { extname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const CHARS_PER_TOKEN = 4;
 const BUDGET_RATIO = 0.7;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_PROMPT_IMAGES = 64;
+const MAX_PROMPT_IMAGE_BYTES = 40 * 1024 * 1024;
 const MAX_BASE64_CHARS = Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 4;
 const IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/;
+const CONTROL_TAG = /<\/?(?:system|assistant|conversation_history|conversation_continuation|tool_call|tool_result)\b[^>]*>/gi;
 
 type PromptMessage = { role: string; content: unknown };
 
@@ -15,6 +20,10 @@ type ImageBlock = {
   type: "image";
   source: { type: "base64"; media_type: string; data: string };
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export type SdkUserMessage = {
   type: "user";
@@ -25,6 +34,10 @@ export type SdkUserMessage = {
 
 const TAG_END = (name: string): string => "<" + "/" + name + ">";
 
+function escapeControlTags(text: string): string {
+  return text.replace(CONTROL_TAG, (tag) => tag.replace("<", "&lt;").replace(">", "&gt;"));
+}
+
 function approxTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
@@ -34,6 +47,7 @@ function extractText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   const out: string[] = [];
   for (const part of content) {
+    if (!isRecord(part)) continue;
     const p = part as { type?: string; text?: string };
     if (p.type === "text" && p.text) out.push(p.text);
   }
@@ -45,51 +59,71 @@ function extractUserText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const part of content) {
-    const p = part as { type?: string; text?: string; mimeType?: string; mediaType?: string };
+    if (!isRecord(part)) continue;
+    const p = part as { type?: string; text?: string; mimeType?: string; mediaType?: string; filename?: string; data?: unknown };
     if (p.type === "text" && p.text) parts.push(p.text);
     else if (p.type === "image") parts.push(`[Image attached: ${p.mimeType ?? "image"}]`);
-    else if (p.type === "file" && typeof p.mediaType === "string" && p.mediaType.startsWith("image/"))
-      parts.push(`[Image attached: ${p.mediaType}]`);
+    else if (p.type === "file") {
+      const isImg = typeof p.mediaType === "string" && p.mediaType.toLowerCase().startsWith("image/");
+      if (isImg) {
+        parts.push(`[Image attached: ${p.mediaType}]`);
+      } else {
+        const fileDesc = p.filename ? `[File attached: ${p.filename}]` : "[File attached]";
+        const fileData = typeof p.data === "string" ? p.data : "";
+        parts.push(fileData ? `${fileDesc}\n${fileData}` : fileDesc);
+      }
+    }
   }
   return parts.join("\n");
 }
 
 function serializeToolOutput(output: unknown): string {
   if (output == null) return "";
-  if (typeof output === "string") return output;
-  if (!Array.isArray(output)) return JSON.stringify(output, null, 2);
+  if (typeof output === "string") return escapeControlTags(output);
+  if (!Array.isArray(output)) return escapeControlTags(safeStringify(output, ""));
   const parts: string[] = [];
   for (const item of output) {
     if (item && typeof item === "object" && "type" in item) {
       const it = item as { type: string; value?: unknown };
       if (it.type === "text") parts.push(String(it.value ?? ""));
-      else if (it.type === "json") parts.push(JSON.stringify(it.value, null, 2));
+      else if (it.type === "json") parts.push(safeStringify(it.value, ""));
       else if (it.type === "error-text") parts.push(`[Error] ${String(it.value ?? "")}`);
-      else parts.push(JSON.stringify(item, null, 2));
+      else parts.push(safeStringify(item, ""));
       continue;
     }
-    parts.push(JSON.stringify(item, null, 2));
+    parts.push(safeStringify(item, ""));
   }
-  return parts.join("\n");
+  return escapeControlTags(parts.join("\n"));
+}
+
+function safeStringify(value: unknown, fallback: string): string {
+  try { return JSON.stringify(value, null, 2) ?? fallback; } catch { return fallback; }
+}
+
+function escapeAttribute(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("\"", "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 function serializeMessage(msg: PromptMessage): string {
   switch (msg.role) {
     case "system": {
       const text = extractText(msg.content);
-      return text ? `<system>\n${text}\n${TAG_END("system")}` : "";
+      return text ? `<system>\n${escapeControlTags(text)}\n${TAG_END("system")}` : "";
     }
     case "user":
-      return extractUserText(msg.content);
+      return escapeControlTags(extractUserText(msg.content));
     case "assistant": {
       if (!Array.isArray(msg.content)) return "";
       const parts: string[] = [];
       for (const part of msg.content) {
+        if (!isRecord(part)) continue;
         const p = part as { type?: string; text?: string; toolCallId?: string; toolName?: string; input?: unknown };
-        if (p.type === "text" && p.text) parts.push(p.text);
+        if (p.type === "text" && p.text) parts.push(escapeControlTags(p.text));
         else if (p.type === "tool-call") {
-          const input = typeof p.input === "string" ? p.input : JSON.stringify(p.input ?? {});
-          parts.push(`<tool_call id="${p.toolCallId}" name="${p.toolName}">\n${input}\n${TAG_END("tool_call")}`);
+          const input = typeof p.input === "string" ? p.input : safeStringify(p.input ?? {}, "{}");
+          const idAttr = p.toolCallId ? ` id="${escapeAttribute(p.toolCallId)}"` : "";
+          const nameAttr = p.toolName ? ` name="${escapeAttribute(p.toolName)}"` : "";
+          parts.push(`<tool_call${idAttr}${nameAttr}>\n${escapeControlTags(input)}\n${TAG_END("tool_call")}`);
         }
       }
       return parts.length > 0 ? `<assistant>\n${parts.join("\n")}\n${TAG_END("assistant")}` : "";
@@ -98,9 +132,12 @@ function serializeMessage(msg: PromptMessage): string {
       if (!Array.isArray(msg.content)) return "";
       const parts: string[] = [];
       for (const part of msg.content) {
+        if (!isRecord(part)) continue;
         const p = part as { type?: string; toolCallId?: string; toolName?: string; output?: unknown };
         if (p.type === "tool-result") {
-          parts.push(`<tool_result id="${p.toolCallId}" name="${p.toolName}">\n${serializeToolOutput(p.output)}\n${TAG_END("tool_result")}`);
+          const idAttr = p.toolCallId ? ` id="${escapeAttribute(p.toolCallId)}"` : "";
+          const nameAttr = p.toolName ? ` name="${escapeAttribute(p.toolName)}"` : "";
+          parts.push(`<tool_result${idAttr}${nameAttr}>\n${serializeToolOutput(p.output)}\n${TAG_END("tool_result")}`);
         }
       }
       return parts.join("\n");
@@ -124,7 +161,7 @@ function inferMediaType(filePath: string): string {
 function readLocalBase64(pathOrUrl: string): string | null {
   try {
     let filePath: string;
-    if (pathOrUrl.startsWith("file://")) filePath = decodeURIComponent(new URL(pathOrUrl).pathname);
+    if (pathOrUrl.startsWith("file://")) filePath = fileURLToPath(new URL(pathOrUrl));
     else if (pathOrUrl.startsWith("~/")) filePath = resolve(homedir(), pathOrUrl.slice(2));
     else filePath = resolve(pathOrUrl);
     const info = statSync(filePath);
@@ -135,23 +172,42 @@ function readLocalBase64(pathOrUrl: string): string | null {
   }
 }
 
+function isValidBase64(data: string): boolean {
+  if (data.length === 0 || data.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return false;
+  const unpadded = data.replace(/=+$/, "");
+  const decoded = Buffer.from(data, "base64");
+  if (decoded.length === 0 || decoded.length > MAX_IMAGE_BYTES) return false;
+  return decoded.toString("base64").replace(/=+$/, "") === unpadded;
+}
+
+function parseDataUrl(raw: string): ImageBlock | null {
+  if (!raw.startsWith("data:")) return null;
+  const commaIdx = raw.indexOf(",");
+  if (commaIdx <= 5 || commaIdx >= 100) return null;
+  const meta = raw.slice(5, commaIdx);
+  if (!meta.toLowerCase().endsWith(";base64")) return null;
+  const mime = meta.slice(0, -7).trim().toLowerCase();
+  if (!IMAGE_MEDIA_TYPES.has(mime)) return null;
+  const data = raw.slice(commaIdx + 1);
+  if (data.length > MAX_BASE64_CHARS || !isValidBase64(data)) return null;
+  return { type: "image", source: { type: "base64", media_type: mime, data } };
+}
+
 function imageFromPart(part: Record<string, unknown>): ImageBlock | null {
-  const mediaType = (part.mimeType as string | undefined) ?? (part.mediaType as string | undefined);
+  const rawMediaType = (part.mimeType as string | undefined) ?? (part.mediaType as string | undefined);
+  const mediaType = typeof rawMediaType === "string" ? rawMediaType.toLowerCase() : undefined;
 
   const fromString = (raw: string, fallbackType: string): ImageBlock | null => {
     if (raw.length > MAX_BASE64_CHARS + 128) return null;
-    const dataUrl = raw.match(/^data:([^;]+);base64,([A-Za-z0-9+/]*={0,2})$/);
-    if (dataUrl) {
-      if (!IMAGE_MEDIA_TYPES.has(dataUrl[1]) || dataUrl[2].length > MAX_BASE64_CHARS) return null;
-      return { type: "image", source: { type: "base64", media_type: dataUrl[1], data: dataUrl[2] } };
-    }
-    if (raw.startsWith("file://") || raw.startsWith("/") || raw.startsWith("~/")) {
+    const dataUrl = parseDataUrl(raw);
+    if (dataUrl) return dataUrl;
+    if (raw.startsWith("file://") || raw.startsWith("~/") || isAbsolute(raw) || WINDOWS_ABSOLUTE_PATH.test(raw)) {
       const data = readLocalBase64(raw);
       if (data == null) return null;
-      const pathForInfer = raw.startsWith("file://") ? decodeURIComponent(new URL(raw).pathname) : raw;
+      const pathForInfer = raw.startsWith("file://") ? fileURLToPath(new URL(raw)) : raw;
       return { type: "image", source: { type: "base64", media_type: mediaType ?? inferMediaType(pathForInfer), data } };
     }
-    if (!IMAGE_MEDIA_TYPES.has(fallbackType) || raw.length > MAX_BASE64_CHARS) return null;
+    if (!IMAGE_MEDIA_TYPES.has(fallbackType) || raw.length > MAX_BASE64_CHARS || !isValidBase64(raw)) return null;
     return { type: "image", source: { type: "base64", media_type: fallbackType, data: raw } };
   };
 
@@ -168,7 +224,7 @@ function imageFromPart(part: Record<string, unknown>): ImageBlock | null {
       if (image.protocol !== "file:") return null;
       const data = readLocalBase64(image.toString());
       if (data == null) return null;
-      return { type: "image", source: { type: "base64", media_type: mediaType ?? inferMediaType(decodeURIComponent(image.pathname)), data } };
+      return { type: "image", source: { type: "base64", media_type: mediaType ?? inferMediaType(fileURLToPath(image)), data } };
     }
     if (typeof image === "string") return fromString(image, "image/jpeg");
     return null;
@@ -184,10 +240,8 @@ function imageFromPart(part: Record<string, unknown>): ImageBlock | null {
     if (data instanceof URL) {
       const urlStr = data.toString();
       if (urlStr.length > MAX_BASE64_CHARS + 128) return null;
-      const dataUrl = urlStr.match(/^data:([^;]+);base64,([A-Za-z0-9+/]*={0,2})$/);
-      if (dataUrl && IMAGE_MEDIA_TYPES.has(dataUrl[1]) && dataUrl[2].length <= MAX_BASE64_CHARS) {
-        return { type: "image", source: { type: "base64", media_type: dataUrl[1], data: dataUrl[2] } };
-      }
+      const dataUrl = parseDataUrl(urlStr);
+      if (dataUrl) return dataUrl;
       if (data.protocol !== "file:") return null;
       const b64 = readLocalBase64(urlStr);
       if (b64 == null) return null;
@@ -205,15 +259,75 @@ function lastUserIndex(prompt: PromptMessage[]): number {
   return -1;
 }
 
+function toolCallIds(message: PromptMessage): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(message.content)) return ids;
+  for (const part of message.content) {
+    if (!isRecord(part)) continue;
+    if (part.type === "tool-call" && typeof part.toolCallId === "string" && part.toolCallId) ids.add(part.toolCallId);
+    if (part.type === "tool-result" && typeof part.toolCallId === "string" && part.toolCallId) ids.add(part.toolCallId);
+  }
+  return ids;
+}
+
+function buildPairedToolGroups(prompt: PromptMessage[]): Map<number, number[]> {
+  const owners = new Map<string, number>();
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < prompt.length; i++) {
+    if (prompt[i].role === "assistant") {
+      const group = [i];
+      groups.set(i, group);
+      for (const id of toolCallIds(prompt[i])) owners.set(id, i);
+      continue;
+    }
+    if (prompt[i].role === "tool") {
+      const owner = [...toolCallIds(prompt[i])].map((id) => owners.get(id)).find((value) => value !== undefined);
+      if (owner === undefined) continue;
+      const group = groups.get(owner);
+      if (group) group.push(i);
+    }
+  }
+  for (const group of [...groups.values()]) {
+    for (const index of group) groups.set(index, group);
+  }
+  return groups;
+}
+
 /** Return only the newest turn when the SDK is resuming an existing session. */
 export function latestPrompt(prompt: PromptMessage[]): PromptMessage[] {
   const idx = lastUserIndex(prompt);
   return idx >= 0 ? prompt.slice(idx) : prompt.slice(-1);
 }
 
+function truncateMessage(msg: PromptMessage, maxChars: number): PromptMessage {
+  const clip = (value: string): string => value.slice(0, Math.max(0, maxChars));
+  if (typeof msg.content === "string") return { ...msg, content: clip(msg.content) };
+  if (!Array.isArray(msg.content)) return msg;
+
+  let remaining = Math.max(0, maxChars);
+  const content = msg.content.map((part) => {
+    if (!isRecord(part)) return part;
+    const copy = { ...part };
+    const clipField = (field: string) => {
+      const value = copy[field];
+      if (typeof value !== "string") return;
+      copy[field] = value.slice(0, remaining);
+      remaining = Math.max(0, remaining - value.length);
+    };
+    if (copy.type === "text") clipField("text");
+    else if (copy.type === "file" && !(typeof copy.mediaType === "string" && copy.mediaType.toLowerCase().startsWith("image/"))) clipField("data");
+    else if (copy.type === "tool-call") clipField("input");
+    else if (copy.type === "tool-result" && typeof copy.output === "string") clipField("output");
+    return copy;
+  });
+  return { ...msg, content };
+}
+
 function trimToBudget(prompt: PromptMessage[], contextWindow: number): PromptMessage[] {
-  const budget = Math.floor(contextWindow * BUDGET_RATIO);
-  if (prompt.length <= 1) return prompt;
+  const budget = Math.max(1, Math.floor(contextWindow * BUDGET_RATIO));
+  if (prompt.length === 0) return prompt;
+
+  const lastUserIdx = lastUserIndex(prompt);
 
   const serialized = prompt.map((msg) => {
     const text = serializeMessage(msg);
@@ -224,14 +338,22 @@ function trimToBudget(prompt: PromptMessage[], contextWindow: number): PromptMes
   let total = 0;
   let dropped = 0;
   for (const item of serialized) total += item.tokens;
+  const pairedGroups = buildPairedToolGroups(prompt);
 
-  for (const item of serialized) {
+  for (let i = 0; i < serialized.length; i++) {
     if (remaining <= 1 || total <= budget) break;
+    const item = serialized[i];
+    if (item.dropped) continue;
     if (item.msg.role === "system") continue;
-    item.dropped = true;
-    total -= item.tokens;
-    remaining--;
-    dropped++;
+    if (i === lastUserIdx) continue;
+    const group = pairedGroups.get(i) ?? [i];
+    if (group.some((value) => value === lastUserIdx || prompt[value].role === "system")) continue;
+    const activeGroup = group.filter((value) => !serialized[value].dropped);
+    if (remaining - activeGroup.length < 1) continue;
+    for (const value of activeGroup) serialized[value].dropped = true;
+    total -= activeGroup.reduce((sum, value) => sum + serialized[value].tokens, 0);
+    remaining -= activeGroup.length;
+    dropped += activeGroup.length;
   }
 
   const kept = serialized.filter((item) => !item.dropped);
@@ -241,7 +363,32 @@ function trimToBudget(prompt: PromptMessage[], contextWindow: number): PromptMes
     const insertAt = kept.findLastIndex((m) => m.msg.role === "system") + 1;
     kept.splice(insertAt, 0, { msg: marker, text: markerText, tokens: approxTokens(markerText), dropped: false });
   }
-  return kept.map((item) => item.msg);
+
+  // Dropping history normally fits the prompt, but a single current message
+  // (or a very large system message) can exceed the remaining context by
+  // itself. Clip the largest protected messages as a final safety valve so a
+  // malformed/oversized request does not get sent unbounded to the SDK.
+  const result = kept.map((item) => item.msg);
+  let totalTokens = result.reduce((sum, msg) => sum + approxTokens(serializeMessage(msg)), 0);
+  const lastKeptUser = lastUserIndex(result);
+  const candidates = [
+    ...(lastKeptUser >= 0 ? [lastKeptUser] : []),
+    ...result.map((msg, index) => ({ msg, index })).filter(({ msg, index }) => index !== lastKeptUser && msg.role !== "user").map(({ index }) => index),
+  ];
+  for (const index of candidates) {
+    if (totalTokens <= budget) break;
+    const before = serializeMessage(result[index]);
+    const beforeTokens = approxTokens(before);
+    const otherTokens = totalTokens - beforeTokens;
+    const availableChars = Math.max(0, (budget - otherTokens - 1) * CHARS_PER_TOKEN);
+    const clipped = truncateMessage(result[index], availableChars);
+    const after = serializeMessage(clipped);
+    if (after.length < before.length) {
+      result[index] = clipped;
+      totalTokens = otherTokens + approxTokens(after);
+    }
+  }
+  return result;
 }
 
 function serializeRange(prompt: PromptMessage[], start: number, end: number): string[] {
@@ -259,8 +406,9 @@ export function promptHasImage(prompt: PromptMessage[]): boolean {
   const content = prompt[idx].content;
   if (!Array.isArray(content)) return false;
   return content.some((part) => {
+    if (!isRecord(part)) return false;
     const p = part as { type?: string; mediaType?: string };
-    return p.type === "image" || (p.type === "file" && typeof p.mediaType === "string" && p.mediaType.startsWith("image/"));
+    return p.type === "image" || (p.type === "file" && typeof p.mediaType === "string" && p.mediaType.toLowerCase().startsWith("image/"));
   });
 }
 
@@ -298,16 +446,36 @@ export async function* buildPromptIterable(
   }
 
   const content = effective[lastUser].content;
+  const currentStart = blocks.length;
+  let imageCount = 0;
+  let imageBytes = 0;
+  let omittedImages = 0;
   if (Array.isArray(content)) {
     for (const part of content) {
+      if (!isRecord(part)) continue;
       const p = part as Record<string, unknown>;
       if (p.type === "text" && typeof p.text === "string") {
-        blocks.push({ type: "text", text: p.text });
+        blocks.push({ type: "text", text: escapeControlTags(p.text) });
       } else {
         const img = imageFromPart(p);
-        if (img) blocks.push(img);
+        if (img) {
+          const bytes = Math.floor(img.source.data.length * 3 / 4);
+          if (imageCount >= MAX_PROMPT_IMAGES || imageBytes + bytes > MAX_PROMPT_IMAGE_BYTES) {
+            omittedImages++;
+          } else {
+            blocks.push(img);
+            imageCount++;
+            imageBytes += bytes;
+          }
+        }
       }
     }
+  }
+  if (omittedImages > 0) {
+    blocks.push({ type: "text", text: `[${omittedImages} image attachment(s) omitted because the request image limit was reached]` });
+  }
+  if (blocks.length === currentStart) {
+    blocks.push({ type: "text", text: escapeControlTags(extractUserText(content) || "Hello") });
   }
 
   const trailing = serializeRange(effective, lastUser + 1, effective.length);

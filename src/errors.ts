@@ -1,3 +1,5 @@
+import { redactSensitiveText } from "./logger.js";
+
 export type QoderBridgeErrorCode =
   | "QODER_CLI_NOT_FOUND"
   | "QODER_AUTH_FAILED"
@@ -42,8 +44,10 @@ export class QoderSdkResultError extends QoderBridgeError {
   readonly subtype: string;
 
   constructor(subtype: string, detail = "", options?: { cause?: unknown }) {
-    super("QODER_SDK_RESULT_ERROR", `Qoder SDK: ${subtype}${detail ? ` | ${detail}` : ""}`, options);
-    this.subtype = subtype;
+    const safeSubtype = redactSensitiveText(String(subtype)).slice(0, 256);
+    const safeDetail = redactSensitiveText(String(detail)).slice(0, 4096);
+    super("QODER_SDK_RESULT_ERROR", `Qoder SDK: ${safeSubtype}${safeDetail ? ` | ${safeDetail}` : ""}`, options);
+    this.subtype = safeSubtype;
   }
 }
 

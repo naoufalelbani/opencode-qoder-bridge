@@ -11,14 +11,23 @@ const NAME_MAP: Record<string, string> = {
   agent: "task",
   exitplanmode: "plan_exit",
   str_replace_based_edit_tool: "edit",
+  execute_command: "bash",
+  executecommand: "bash",
+  run_command: "bash",
+  runcommand: "bash",
 };
 
 const KEY_RENAMES: Record<string, Record<string, string>> = {
-  read: { file_path: "filePath" },
-  write: { file_path: "filePath" },
+  read: { file_path: "filePath", path: "filePath" },
+  write: { file_path: "filePath", path: "filePath" },
+  delete: { file_path: "filePath", path: "filePath" },
+  view: { file_path: "filePath", path: "filePath" },
+  apply_diff: { file_path: "filePath", path: "filePath" },
+  bash: { cmd: "command" },
   task: { subagentType: "subagent_type" },
   edit: {
     file_path: "filePath",
+    path: "filePath",
     old_string: "oldString",
     new_string: "newString",
     replace_all: "replaceAll",

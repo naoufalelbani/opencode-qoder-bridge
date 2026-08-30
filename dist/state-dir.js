@@ -8,7 +8,8 @@ export function resolveStateDir(env = process.env) {
     const override = env.QODER_BRIDGE_STATE_DIR?.trim();
     if (override)
         return join(override);
-    const configHome = env.XDG_CONFIG_HOME?.trim();
+    const configHome = env.XDG_CONFIG_HOME?.trim()
+        || (process.platform === "win32" ? env.APPDATA?.trim() : undefined);
     return join(configHome || join(homedir(), ".config"), "opencode-qoder-bridge");
 }
 //# sourceMappingURL=state-dir.js.map

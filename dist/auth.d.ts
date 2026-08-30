@@ -7,5 +7,6 @@ export declare function isAuthenticated(): boolean;
  * Returns null when no separately installed CLI is found. The Qoder SDK can
  * still run through its bundled Worker runtime when credentials are present.
  */
-export declare function findQoderCLI(): string | null;
+export declare function findQoderCLI(force?: boolean): string | null;
+export declare function resetCachedCliPath(): void;
 //# sourceMappingURL=auth.d.ts.map

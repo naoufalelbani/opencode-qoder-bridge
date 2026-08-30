@@ -1,1 +1,1 @@
-{"version":3,"file":"tui-register.d.ts","sourceRoot":"","sources":["../src/tui-register.ts"],"names":[],"mappings":"AA8BA,wBAAsB,mBAAmB,CACvC,UAAU,SAAwB,EAClC,KAAK,SAAY,GAChB,OAAO,CAAC,OAAO,GAAG,SAAS,CAAC,CA6C9B"}
+{"version":3,"file":"tui-register.d.ts","sourceRoot":"","sources":["../src/tui-register.ts"],"names":[],"mappings":"AAiEA,wBAAsB,mBAAmB,CACvC,UAAU,SAAwB,EAClC,KAAK,SAAY,GAChB,OAAO,CAAC,OAAO,GAAG,SAAS,CAAC,CA+C9B"}

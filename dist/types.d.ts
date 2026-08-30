@@ -1,3 +1,4 @@
+import type { EvolutionOptions } from "@qoder-ai/qoder-agent-sdk";
 export interface QoderModelDef {
     id: string;
     name: string;
@@ -20,7 +21,15 @@ export interface QoderModelDef {
 export interface QoderBridgeOptions {
     /** Force a transport mode. `sdk` (default) streams via the agent SDK. */
     mode?: "sdk";
-    /** Extra CLI flags forwarded to qodercli, e.g. { "--experimental-mcp-load": null }. */
+    /** Working directory for the Qoder process and persisted session identity. */
+    cwd?: string;
+    /** Initial Plan Mode state for the main session, independent from tool permissions. */
+    planMode?: boolean;
+    /** Outbound proxy URL used by qodercli (e.g. http://, https://, socks5://). */
+    proxy?: string;
+    /** Opt-in skill evolution configuration for the session. */
+    evolution?: EvolutionOptions;
+    /** Extra CLI flags forwarded to qodercli; accepts bare or `--`-prefixed names. */
     extraArgs?: Record<string, string | null>;
     /** Bridged MCP server configs keyed by server name. */
     mcpServers?: Record<string, unknown>;
@@ -34,14 +43,15 @@ export interface QoderBridgeOptions {
     permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
     /** Whether the SDK may skip permission checks when bypassPermissions is selected. */
     allowDangerouslySkipPermissions?: boolean;
+    /** Maximum duration of a chat turn in milliseconds; defaults to 30 minutes. */
+    timeoutMs?: number;
     /** Optional SDK tool allowlist. */
     allowedTools?: string[];
     /** Optional SDK tool denylist. */
     disallowedTools?: string[];
     /**
-     * Extra environment variables for the qodercli child process. CLI-boot
-     * catalog filters like QODER_SCENE must be set here (or in the host
-     * environment) to take effect.
+     * Extra environment variables for the qodercli child process used for chat
+     * turns. Live model discovery reads QODER_SCENE from the host environment.
      */
     env?: Record<string, string | undefined>;
 }

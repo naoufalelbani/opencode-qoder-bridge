@@ -13,11 +13,11 @@ process.env.QODER_BRIDGE_STATE_DIR = STATE_ROOT;
 const { QoderBridgeError, QoderCliNotFoundError, QoderSessionError, QoderSdkResultError, UnsupportedCapabilityError } =
   await import(DIST + "errors.js");
 const { resolveStateDir } = await import(DIST + "state-dir.js");
-const { isDebugEnabled } = await import(DIST + "logger.js");
+const { isDebugEnabled, describeError, redactSensitiveText } = await import(DIST + "logger.js");
 const { handleSdkMessage, QoderLanguageModel } = await import(DIST + "language-model.js");
-const { ensureQoderSession } = await import(DIST + "session-store.js");
-const { buildPromptString } = await import(DIST + "prompt-builder.js");
-const { selectEnabledModels } = await import(DIST + "models.js");
+const { ensureQoderSession, getQoderSession, getQoderSessionForCwd, deleteQoderSession } = await import(DIST + "session-store.js");
+const { buildPromptString, buildPromptIterable } = await import(DIST + "prompt-builder.js");
+const { selectEnabledModels, applyLiveModelUpdates, getModel, listModels } = await import(DIST + "models.js");
 
 describe("typed errors", () => {
   test("subclasses expose stable codes and names", () => {
@@ -80,6 +80,20 @@ describe("debug logging gate", () => {
       else process.env.QODER_BRIDGE_DEBUG = old;
     }
   });
+
+  test("redacts credentials from diagnostic text", () => {
+    const old = process.env.QODER_PERSONAL_ACCESS_TOKEN;
+    process.env.QODER_PERSONAL_ACCESS_TOKEN = "pt-secret-value-123";
+    try {
+      const text = describeError(new Error("Authorization: Bearer pt-secret-value-123 token=pt-secret-value-123"));
+      assert.equal(text.includes("pt-secret-value-123"), false);
+      assert.equal(redactSensitiveText("https://example.test/?access_token=hidden"), "https://example.test/?access_token=[REDACTED]");
+      assert.equal(redactSensitiveText(JSON.stringify({ token: "pt-secret-value-123" })).includes("pt-secret-value-123"), false);
+    } finally {
+      if (old === undefined) delete process.env.QODER_PERSONAL_ACCESS_TOKEN;
+      else process.env.QODER_PERSONAL_ACCESS_TOKEN = old;
+    }
+  });
 });
 
 function makeState(overrides = {}) {
@@ -93,6 +107,7 @@ function makeState(overrides = {}) {
       activeText: new Set(),
       activeReasoning: new Set(),
       toolBlocks: new Map(),
+      openBlocks: [],
       sawStreamText: false,
       sawStreamTool: false,
       sawStreamReasoning: false,
@@ -100,7 +115,10 @@ function makeState(overrides = {}) {
       pendingToolCalls: new Map(),
       lastStopReason: null,
       blockCounter: 0,
+      outputChars: 0,
       finished: false,
+      resultReceived: false,
+      artifacts: [],
       ...overrides,
     },
   };
@@ -129,16 +147,334 @@ describe("result metadata shape", () => {
     assert.equal(meta.qoder, undefined, "must not double-nest a second qoder object");
   });
 
+  test("captures plan_mode_changed event into providerMetadata", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage(
+      {
+        type: "system",
+        subtype: "plan_mode_changed",
+        plan_mode: { active: true, source: "user" },
+      },
+      state,
+    );
+    handleSdkMessage({ type: "result", subtype: "success", usage: {} }, state);
+    const finish = parts.find((p) => p.type === "finish");
+    assert.deepEqual(finish.providerMetadata?.qoder?.planMode, { active: true, source: "user" });
+  });
+
+  test("captures artifacts_update events into providerMetadata", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage(
+      {
+        type: "system",
+        subtype: "artifacts_update",
+        artifacts: [
+          {
+            path: "/path/to/file.ts",
+            display_path: "file.ts",
+            name: "file.ts",
+            kind: "changed",
+            additions: 10,
+            deletions: 2,
+            is_new: false,
+          },
+        ],
+      },
+      state,
+    );
+    handleSdkMessage({ type: "result", subtype: "success", usage: {} }, state);
+    const finish = parts.find((p) => p.type === "finish");
+    assert.ok(Array.isArray(finish.providerMetadata?.qoder?.artifacts));
+    assert.equal(finish.providerMetadata.qoder.artifacts.length, 1);
+    assert.equal(finish.providerMetadata.qoder.artifacts[0].name, "file.ts");
+  });
+
+  test("captures skill_evolution events into providerMetadata", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage(
+      {
+        type: "system",
+        subtype: "skill_evolution",
+        result: { status: "suggested", suggestions: [{ skillName: "test-skill", action: "create" }] },
+      },
+      state,
+    );
+    handleSdkMessage({ type: "result", subtype: "success", usage: {} }, state);
+    const finish = parts.find((p) => p.type === "finish");
+    assert.equal(finish.providerMetadata?.qoder?.skillEvolution?.status, "suggested");
+  });
+
   test("SDK failure results emit typed error part", () => {
     const { parts, state } = makeState();
-    handleSdkMessage({ type: "result", subtype: "error_during_execution", errors: ["boom"] }, state);
+    handleSdkMessage({ type: "result", subtype: "error_during_execution", errors: ["boom", "Authorization: Bearer qoder-secret-value"] }, state);
 
     const errorPart = parts.find((p) => p.type === "error");
     assert.ok(errorPart?.error instanceof QoderBridgeError);
     assert.equal(errorPart.error.code, "QODER_SDK_RESULT_ERROR");
     assert.equal(errorPart.error.subtype, "error_during_execution");
+    assert.equal(errorPart.error.message.includes("qoder-secret-value"), false);
     const finish = parts.find((p) => p.type === "finish");
     assert.equal(finish.finishReason.unified, "error");
+  });
+
+  test("duplicate tool events produce one OpenCode tool call", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["read"]) });
+    const start = {
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 2,
+        content_block: { type: "tool_use", id: "tool-1", name: "Read" },
+      },
+    };
+    handleSdkMessage(start, state);
+    handleSdkMessage(start, state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"path":"x"}' } },
+    }, state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 2 } }, state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 2 } }, state);
+    handleSdkMessage({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "tool-1", name: "Read", input: { path: "x" } }] },
+    }, state);
+
+    assert.equal(parts.filter((part) => part.type === "tool-call").length, 1);
+    assert.equal(parts.filter((part) => part.type === "tool-input-start").length, 1);
+  });
+
+  test("MCP tool names remain provider-owned despite normalized host collisions", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["demo_run"]) });
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", index: 4, content_block: { type: "tool_use", id: "mcp-call", name: "mcp__demo__run" } },
+    }, state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 4, delta: { type: "input_json_delta", partial_json: "{}" } },
+    }, state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 4 } }, state);
+    assert.equal(parts.filter((part) => part.type === "tool-call").length, 0);
+  });
+
+  test("malformed SDK usage cannot emit non-finite provider usage", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "result",
+      subtype: "success",
+      usage: {
+        input_tokens: "bad",
+        output_tokens: -10,
+        cache_read_input_tokens: Infinity,
+        context_usage_ratio: 4,
+      },
+      total_cost_usd: NaN,
+      modelUsage: { auto: { inputTokens: NaN } },
+    }, state);
+
+    const finish = parts.find((part) => part.type === "finish");
+    assert.ok(finish);
+    assert.equal(finish.usage.inputTokens.total, 200_000);
+    assert.equal(finish.usage.outputTokens.total, 0);
+    assert.ok(Number.isFinite(finish.usage.inputTokens.total));
+    assert.equal(finish.providerMetadata.qoder.totalCostUSD, 0);
+    assert.equal(parts.filter((part) => part.type === "finish").length, 1);
+
+    // A late duplicate result must be ignored after the terminal part.
+    handleSdkMessage({ type: "result", subtype: "success", usage: { input_tokens: 1 } }, state);
+    assert.equal(parts.filter((part) => part.type === "finish").length, 1);
+  });
+
+  test("truncated tool streams close input without executing an incomplete call", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["read"]) });
+    handleSdkMessage({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 3,
+        content_block: { type: "tool_use", id: "partial-tool", name: "Read" },
+      },
+    }, state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 3,
+        delta: { type: "input_json_delta", partial_json: '{"path":"x"}' },
+      },
+    }, state);
+    handleSdkMessage({ type: "result", subtype: "success", usage: {} }, state);
+
+    assert.equal(parts.filter((part) => part.type === "tool-input-start").length, 1);
+    assert.equal(parts.filter((part) => part.type === "tool-input-end").length, 1);
+    assert.equal(parts.filter((part) => part.type === "tool-call").length, 0);
+    assert.equal(parts.find((part) => part.type === "error")?.error?.subtype, "incomplete_stream");
+    assert.equal(parts.at(-1).type, "finish");
+    assert.equal(parts.at(-1).finishReason.unified, "error");
+  });
+
+  test("replayed SDK messages with the same UUID emit one logical delta", () => {
+    const { parts, state } = makeState();
+    const delta = {
+      type: "stream_event",
+      uuid: "message-1",
+      event: { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "A" } },
+    };
+    handleSdkMessage(delta, state);
+    handleSdkMessage(delta, state);
+    assert.equal(parts.filter((part) => part.type === "text-delta").length, 1);
+    assert.equal(parts.filter((part) => part.type === "text-start").length, 1);
+  });
+
+  test("malformed indexes and tool JSON fail safely", () => {
+    const first = makeState();
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", index: "bad", content_block: { type: "text" } },
+    }, first.state);
+    assert.equal(first.parts.find((part) => part.type === "error")?.error?.subtype, "malformed_stream");
+    assert.equal(first.parts.at(-1).finishReason.unified, "error");
+
+    const second = makeState({ functionToolNames: new Set(["read"]) });
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "bad-json", name: "Read" } },
+    }, second.state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"path":' } },
+    }, second.state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 1 } }, second.state);
+    assert.equal(second.parts.find((part) => part.type === "error")?.error?.subtype, "invalid_tool_input");
+    assert.equal(second.parts.filter((part) => part.type === "tool-call").length, 0);
+  });
+
+  test("result stop reason maps when no message_delta was emitted", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({ type: "result", subtype: "success", stop_reason: "max_tokens", usage: {} }, state);
+    assert.equal(parts.at(-1).finishReason.unified, "length");
+  });
+
+  test("sanitizes raw stop reasons exposed in finish metadata", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({ type: "result", subtype: "success", stop_reason: "Bearer pt-stop-secret", usage: {} }, state);
+    const raw = parts.at(-1)?.finishReason.raw ?? "";
+    assert.equal(raw.includes("pt-stop-secret"), false);
+    assert.equal(/\u001b/.test(raw), false);
+  });
+
+  test("malformed stream boundaries fail closed", () => {
+    const cases = [
+      { type: "stream_event", event: { type: "content_block_start", index: 1 } },
+      { type: "stream_event", event: { type: "content_block_delta", index: 1 } },
+      { type: "stream_event", event: { type: "content_block_stop", index: 1 } },
+      { type: "assistant", message: {} },
+    ];
+    for (const message of cases) {
+      const { parts, state } = makeState();
+      handleSdkMessage(message, state);
+      assert.equal(parts.find((part) => part.type === "error")?.error?.subtype, "malformed_stream");
+      assert.equal(parts.at(-1)?.type, "finish");
+      assert.equal(parts.at(-1)?.finishReason.unified, "error");
+    }
+
+    const missingInput = makeState({ functionToolNames: new Set(["read"]) });
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", index: 3, content_block: { type: "tool_use", id: "missing-input", name: "Read" } },
+    }, missingInput.state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 3 } }, missingInput.state);
+    assert.equal(missingInput.parts.find((part) => part.type === "error")?.error?.subtype, "malformed_tool_input");
+    assert.equal(missingInput.parts.filter((part) => part.type === "tool-call").length, 0);
+  });
+
+  test("closes open blocks in stream start order before the terminal error", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["read"]) });
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_start", index: 1, content_block: { type: "text" } } }, state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "ordered-tool", name: "Read" } } }, state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: "{}" } } }, state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_start", index: 3, content_block: { type: "thinking" } } }, state);
+    handleSdkMessage({ type: "result", subtype: "success", usage: {} }, state);
+    const ends = parts.filter((part) => part.type === "text-end" || part.type === "tool-input-end" || part.type === "reasoning-end");
+    assert.deepEqual(ends.map((part) => part.id), ["1", "ordered-tool", "3"]);
+    assert.equal(parts.at(-1)?.finishReason.unified, "error");
+  });
+});
+
+describe("session and usage isolation", () => {
+  test("session keys are prototype-safe and workspace-scoped", async () => {
+    const saved = await ensureQoderSession("toString", "session-a", "/tmp/project-a");
+    assert.equal(saved.qoderSessionId, "session-a");
+    assert.equal((await getQoderSession("toString")).qoderSessionId, "session-a");
+    assert.equal(await getQoderSessionForCwd("toString", "/tmp/project-b"), null);
+
+    const replaced = await ensureQoderSession("toString", "session-b", "/tmp/project-b");
+    assert.equal(replaced.qoderSessionId, "session-b");
+    assert.equal((await getQoderSessionForCwd("toString", "/tmp/project-a")).qoderSessionId, "session-a");
+    assert.equal((await getQoderSessionForCwd("toString", "/tmp/project-b")).qoderSessionId, "session-b");
+    await deleteQoderSession("toString");
+  });
+
+  test("refuses to overwrite a corrupt session file", async () => {
+    const stateFile = join(STATE_ROOT, "sessions.json");
+    let previous;
+    try { previous = readFileSync(stateFile); } catch { /* file may not exist */ }
+    const corrupt = Buffer.from('{"keep":{"qoderSessionId":"sid"');
+    writeFileSync(stateFile, corrupt);
+    try {
+      await assert.rejects(() => ensureQoderSession("new", "sid-new", "/tmp/project"), /refusing to overwrite/);
+      assert.deepEqual(readFileSync(stateFile), corrupt);
+    } finally {
+      if (previous) writeFileSync(stateFile, previous);
+      else rmSync(stateFile, { force: true });
+    }
+  });
+
+  test("refuses to rewrite a session file with one invalid entry", async () => {
+    const stateFile = join(STATE_ROOT, "sessions.json");
+    let previous;
+    try { previous = readFileSync(stateFile); } catch { /* file may not exist */ }
+    const mixed = Buffer.from(JSON.stringify({
+      keep: { qoderSessionId: "sid", cwd: "/tmp/keep", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString() },
+      broken: { qoderSessionId: 42 },
+    }));
+    writeFileSync(stateFile, mixed);
+    try {
+      assert.equal((await getQoderSessionForCwd("keep", "/tmp/keep")).qoderSessionId, "sid");
+      await assert.rejects(() => ensureQoderSession("new", "sid-new", "/tmp/project"), /refusing to overwrite/);
+      assert.deepEqual(readFileSync(stateFile), mixed);
+    } finally {
+      if (previous) writeFileSync(stateFile, previous);
+      else rmSync(stateFile, { force: true });
+    }
+  });
+
+  test("usage fetch clears its inflight promise when no credential exists", async () => {
+    const script = `
+      delete process.env.QODER_PERSONAL_ACCESS_TOKEN;
+      const { getLiveUsage } = await import(${JSON.stringify(new URL("../dist/usage.js", import.meta.url).href)});
+      const first = getLiveUsage(true);
+      await first;
+      const second = getLiveUsage(true);
+      if (first === second) process.exit(2);
+      await second;
+    `;
+    execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8",
+      env: { ...process.env, HOME: join(STATE_ROOT, "no-qoder-home"), QODER_BRIDGE_STATE_DIR: join(STATE_ROOT, "usage-child") },
+    });
+  });
+});
+
+describe("TUI registration concurrency", () => {
+  test("concurrent registration keeps one plugin entry", async () => {
+    const { ensureTuiRegistered } = await import(DIST + "tui-register.js");
+    const configPath = join(STATE_ROOT, "opencode", "tui.json");
+    const entry = "file:///tmp/qoder-bridge-test-tui.js";
+    await Promise.all(Array.from({ length: 8 }, () => ensureTuiRegistered(configPath, entry)));
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    assert.deepEqual(config.plugin, [entry]);
   });
 });
 
@@ -173,6 +509,27 @@ describe("doGenerate content aggregation", () => {
     });
     assert.equal(result.finishReason.unified, "tool-calls");
   });
+
+  test("cancels the stream reader when generation receives an error part", async () => {
+    const { QoderLanguageModel } = await import(DIST + "language-model.js");
+    const lm = new QoderLanguageModel("auto");
+    let canceled = false;
+    lm.doStream = async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ type: "error", error: new Error("Authorization: Bearer pt-reader-secret") });
+        },
+        cancel() {
+          canceled = true;
+        },
+      }),
+    });
+    await assert.rejects(() => lm.doGenerate({ prompt: [] }), (error) => {
+      assert.equal(error.message.includes("pt-reader-secret"), false);
+      return true;
+    });
+    assert.equal(canceled, true);
+  });
 });
 
 describe("history trimming", () => {
@@ -202,6 +559,16 @@ describe("history trimming", () => {
     const result = buildPromptString(bigPrompt(2), 200_000);
     assert.ok(!result.includes("truncated_history"));
     assert.ok(result.includes(`${filler} 0`));
+  });
+
+  test("trims assistant tool calls together with their results", () => {
+    const result = buildPromptString([
+      { role: "system", content: "system" },
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "old-call", toolName: "read", input: { path: "old.ts" } }] },
+      { role: "tool", content: [{ type: "tool-result", toolCallId: "old-call", toolName: "read", output: "old result" }] },
+      { role: "user", content: "current question" },
+    ], 120);
+    assert.equal(result.includes("old result"), result.includes("old-call"), "tool call and result must be retained or dropped together");
   });
 });
 
@@ -290,6 +657,18 @@ describe("model catalog selection", () => {
     const src = await import("node:fs").then((fs) => fs.promises.readFile(DIST + "models.js", "utf8"));
     assert.match(src, /fetchStrategy:\s*"live"/, "must request live catalog");
     assert.doesNotMatch(src, /fetchStrategy:\s*"cache"/, "must not serve stale cache as first choice");
+  });
+
+  test("live catalog snapshots remove models that are no longer available", () => {
+    applyLiveModelUpdates([
+      entry("audit-model-old", { displayName: "Old model" }),
+      entry("audit-model-current", { displayName: "Current model" }),
+    ]);
+    assert.ok(getModel("audit-model-old"));
+
+    applyLiveModelUpdates([entry("audit-model-current", { displayName: "Current model" })]);
+    assert.equal(getModel("audit-model-old"), undefined);
+    assert.equal(listModels().some((model) => model.id === "audit-model-old"), false);
   });
 });
 

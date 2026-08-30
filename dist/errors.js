@@ -1,3 +1,4 @@
+import { redactSensitiveText } from "./logger.js";
 /**
  * Base class for all errors raised by the bridge. Carries a stable `code`
  * so callers and tests can branch on failure mode without parsing messages.
@@ -30,8 +31,10 @@ export class QoderSessionError extends QoderBridgeError {
 export class QoderSdkResultError extends QoderBridgeError {
     subtype;
     constructor(subtype, detail = "", options) {
-        super("QODER_SDK_RESULT_ERROR", `Qoder SDK: ${subtype}${detail ? ` | ${detail}` : ""}`, options);
-        this.subtype = subtype;
+        const safeSubtype = redactSensitiveText(String(subtype)).slice(0, 256);
+        const safeDetail = redactSensitiveText(String(detail)).slice(0, 4096);
+        super("QODER_SDK_RESULT_ERROR", `Qoder SDK: ${safeSubtype}${safeDetail ? ` | ${safeDetail}` : ""}`, options);
+        this.subtype = safeSubtype;
     }
 }
 export class UnsupportedCapabilityError extends QoderBridgeError {
