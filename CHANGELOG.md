@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.11] - 2026-09-01
+
+### Added
+
+- Automatically registers `/qoder_usage`, `/qoder_models`, `/qoder_sessions`,
+  `/qoder_session_reset`, `/qoder_session_fork`, `/qoder_mcp_status`,
+  `/qoder_mcp_auth`, and `/qoder_plan_mode` as local OpenCode TUI commands
+  without requiring manual `opencode.json` or `tui.json` edits.
+- Displays command results in local modal boxes without creating an LLM turn or
+  consuming model tokens; the matching tools remain available for agent use.
+- Updated `@qoder-ai/qoder-agent-sdk` to `1.0.31`, paired with qodercli
+  `1.1.38`.
+- Added opt-in SDK-native `memory` and `securityScan` provider options.
+- Flushes configured memory and skill-evolution background work after
+  successful turns with a bounded, non-fatal wait.
+- Added `qoder_mcp_status` and `qoder_mcp_auth` tools for MCP health checks and
+  Qoder's active OAuth flow.
+- Added `qoder_session_fork` for independent local transcript branches.
+
+### Changed
+
+- The bridge package version is `0.1.11`.
+
 ## [0.1.10] - 2026-08-30
 
 ### Changed
@@ -224,3 +247,4 @@ also verified with an in-process MCP transport.
 [0.1.8]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.7...v0.1.8
 [0.1.9]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.8...v0.1.9
 [0.1.10]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.9...v0.1.10
+[0.1.11]: https://github.com/naoufalelbani/opencode-qoder-bridge/compare/v0.1.10...v0.1.11

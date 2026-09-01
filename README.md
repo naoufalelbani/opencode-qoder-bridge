@@ -44,6 +44,19 @@ A ground-up rewrite focused on reliability, performance, and first-class usage/c
 PAT authentication uses the SDK's worker runtime when available and does not
 require a local `qoder login`. CLI authentication remains supported.
 
+With npm 12, dependency install scripts may be blocked by the consuming
+project's script-approval policy. To download SDK `1.0.31`'s bundled Worker
+runtime, approve and rebuild it from that project:
+
+```bash
+npm install-scripts approve @qoder-ai/qoder-agent-sdk@1.0.31
+npm rebuild @qoder-ai/qoder-agent-sdk
+```
+
+If you use a separately installed `qoder` CLI or intentionally set
+`QODER_SKIP_DOWNLOAD=1`, this step is not required; the bridge can use that
+runtime fallback instead.
+
 ## Install
 
 For a published npm installation, add this to
@@ -100,11 +113,12 @@ SDK exposes only a rounded whole-account quota, not its per-request Credits Log.
 The authoritative account balance still comes from SDK `userQuota`, refreshing
 after each completed Qoder turn and every 30 seconds while active.
 
-OpenCode 1.18.5 loads server plugins and TUI plugins independently. On its
-first load, the bridge safely adds its bundled TUI entry to the global
-`tui.json`, preserving existing settings. Restart OpenCode once after initial
-installation so the TUI loader can activate it. The resulting entry is
-equivalent to:
+OpenCode loads server plugins and TUI plugins independently. On its first
+load, the bridge safely adds its bundled TUI entry to the global
+`~/.config/opencode/tui.json`, preserving existing settings. Restart OpenCode
+once after initial installation so the TUI loader can activate it. The regular
+TUI loads these commands; OpenCode's `--mini` interface does not load external
+TUI plugins in current releases. The resulting entry is equivalent to:
 
 ```json
 {
@@ -231,7 +245,33 @@ preserving your configured `permissionMode`:
 }
 ```
 
-Run `/qoder_plan_mode` in OpenCode for quick guidance.
+The plugin automatically registers the following local TUI slash commands in
+OpenCode. No manual `opencode.json` edits are required; restart OpenCode after
+installing or updating the plugin, then select the command from the `/`
+autocomplete list:
+
+The implementations remain registered, but the TUI marks commands as hidden
+when their prerequisites are absent; it does not disable or delete them. With
+the default configuration, only `/qoder_usage` and `/qoder_models` appear.
+Session commands appear when session persistence, `sessionKey`, or `sessionId`
+is configured. MCP commands appear when at least one MCP server is configured.
+`/qoder_plan_mode` remains hidden because it currently provides guidance only.
+
+| Command | Arguments | Purpose |
+|---------|-----------|---------|
+| `/qoder_usage` | none | Show live quota and local cost/token totals. |
+| `/qoder_models` | none | List available Qoder models and capabilities. |
+| `/qoder_sessions` | optional directory and/or limit | List recent Qoder sessions. |
+| `/qoder_session_reset` | optional key, or `all` | Reset persisted session mappings. |
+| `/qoder_session_fork` | optional session ID, directory, title, cutoff | Create an independent session branch. |
+| `/qoder_mcp_status` | none | Inspect MCP connection and OAuth status. |
+| `/qoder_mcp_auth` | server, then optional callback URL | Start or complete MCP OAuth. |
+| `/qoder_plan_mode` | none | Show Plan Mode status and configuration guidance. |
+
+These commands execute in the TUI and show their result in a modal box. They do
+not create an LLM turn or consume model tokens. Commands that accept arguments
+open a local input box first. The same names are also registered as tools for
+agent use, which is a separate model-driven path.
 
 ### Proxy & Network Routing
 
@@ -252,6 +292,68 @@ environment variables (supports `http://`, `https://`, `socks5://`, and `socks:/
 
 If `proxy` is omitted, the bridge automatically falls back to `HTTPS_PROXY` or
 `HTTP_PROXY` from your environment.
+
+### Memory
+
+Memory is opt-in. Native mode lets Qoder consume project/user memory and run
+turn-completion generation while keeping generated content under Qoder's own
+memory controls:
+
+```json
+{
+  "provider": {
+    "qoder": {
+      "options": {
+        "memory": {
+          "mode": "native",
+          "projectScope": true,
+          "userScope": false
+        }
+      }
+    }
+  }
+}
+```
+
+The bridge waits up to 10 seconds for Qoder's memory/evolution background work
+after a successful turn, then closes the query. A slow or failed background
+operation is logged in debug mode and does not fail the user turn.
+
+### Security Scan
+
+Security checks are opt-in and disabled unless explicitly configured:
+
+```json
+{
+  "provider": {
+    "qoder": {
+      "options": {
+        "securityScan": {
+          "l1StaticCheck": true,
+          "l2LightweightScan": true,
+          "l3DeepScan": false
+        }
+      }
+    }
+  }
+}
+```
+
+L1 runs after supported edits; L2/L3 enable repository scans. These checks do
+not replace the bridge's permission policy and may consume additional Qoder
+credits.
+
+### MCP OAuth and session forks
+
+Use `qoder_mcp_status` to inspect configured server state. For a server with
+`needs-auth`, run `qoder_mcp_auth` without `callbackUrl`, open the returned
+authorization URL, then run it again with the complete OAuth callback URL.
+The bridge keeps the initialized SDK query alive for this two-step flow and
+expires it after ten minutes.
+
+Use `qoder_session_fork` to create an independent local transcript branch.
+The active provider mapping is intentionally unchanged; continue the returned
+session ID explicitly when you want to work on the fork.
 
 ### Skill Evolution
 
@@ -279,6 +381,9 @@ The plugin registers several built-in OpenCode tools:
 - `qoder_models` — List known Qoder models, context limits, vision/reasoning flags, and multipliers.
 - `qoder_sessions` — List recent Qoder sessions, session IDs, branches, and timestamps via SDK `listSessions()`.
 - `qoder_session_reset` — Forget the persisted Qoder session mapping for the active project.
+- `qoder_session_fork` — Fork a local Qoder transcript without changing the active mapping.
+- `qoder_mcp_status` — Show MCP connection, tool-count, and OAuth state.
+- `qoder_mcp_auth` — Start or complete active MCP OAuth authentication.
 - `qoder_plan_mode` — View Plan Mode status and configuration guidance.
 
 ## Troubleshooting
@@ -289,6 +394,11 @@ The plugin registers several built-in OpenCode tools:
 | Qoder runtime unavailable | Authenticate with `qoder login` or set `QODER_PERSONAL_ACCESS_TOKEN`; the bridge uses the SDK's bundled Worker runtime for model discovery and can fall back to an installed CLI automatically |
 | Model not found | Run `opencode models qoder` or `/qoder_models`; model IDs are account- and scene-specific |
 | Missing models in the model list | Restart OpenCode; the bridge performs a live catalog lookup automatically and falls back to the last scoped catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching OpenCode |
+
+The SDK package `1.0.31` bundles qodercli `1.1.38`. If the bridge discovers a
+separately installed qodercli first, update that CLI through its normal Qoder
+CLI installer too so the MCP OAuth and oversized-image compaction fixes are
+active on that path.
 
 ### How model discovery works
 
@@ -309,6 +419,7 @@ npm install
 npm run build      # compile to dist/
 npm run typecheck  # type-check only
 npm test           # build and run the test suite
+npm run test:stress # deterministic stress suite; live abort stress is opt-in
 npm run test:e2e   # authenticated real-CLI test; requires QODER_E2E=1
 npm run check      # full pre-publish verification
 ```
@@ -329,6 +440,9 @@ consume account quota. Run it only after `qoder login`:
 ```bash
 QODER_E2E=1 npm run test:e2e
 ```
+
+To include the live concurrent-abort probe in the stress suite, set
+`QODER_STRESS_E2E=1` as well as a valid Qoder credential.
 
 ## Security
 

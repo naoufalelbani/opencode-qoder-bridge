@@ -9,9 +9,12 @@ const LOCK_STALE_MS = 120_000;
 const LOCK_ATTEMPTS = 80;
 
 function globalTuiConfigPath(): string {
+  const explicit = process.env.OPENCODE_TUI_CONFIG?.trim();
+  if (explicit) return explicit;
+  const configDir = process.env.OPENCODE_CONFIG_DIR?.trim();
+  if (configDir) return join(configDir, "tui.json");
   const configHome = process.env.XDG_CONFIG_HOME?.trim();
-  const platformHome = process.platform === "win32" ? process.env.APPDATA?.trim() : undefined;
-  return join(configHome || platformHome || join(homedir(), ".config"), "opencode", "tui.json");
+  return join(configHome || join(homedir(), ".config"), "opencode", "tui.json");
 }
 
 function isMissingFile(error: unknown): boolean {

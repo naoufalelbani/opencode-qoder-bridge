@@ -1,6 +1,6 @@
 # Production Audit Report
 
-Date: 2026-08-30
+Date: 2026-09-01
 
 Scope: `opencode-qoder-bridge` source and generated distribution; OpenCode
 plugin/config hooks; Qoder Agent SDK integration; streaming, cancellation,
@@ -12,12 +12,13 @@ all possible defects have been found or fixed.
 
 ## Release assessment
 
-**READY WITH KNOWN RISKS** for the documented trusted single-user/local-
-workspace use case after the deterministic gates below pass. This is **not an
-unconditional publish approval**: the authenticated Qoder E2E gate was
-attempted but Qoder rejected the turn because the account reached its credit
-limit, and npm authentication is not configured in this environment. The
-working release identity is now `0.1.9`; the residual risks below require
+**READY FOR MAINTAINER REVIEW WITH KNOWN RISKS** for the documented trusted
+single-user/local-workspace use case. The deterministic tests, stress suite,
+packed-artifact consumer check, and public publish dry run pass. This is **not
+an unconditional publish approval**: the authenticated Qoder E2E gate could
+not start because this environment has no Qoder credential, and npm
+authentication is not configured. The working release identity is `0.1.11`;
+it is not committed, tagged, or published. The residual risks below require
 maintainer acceptance.
 
 ## Audit method and independent agents
@@ -103,7 +104,11 @@ pre-fix snapshot; final status below is based on the current source, generated
 - State/TUI/ledger/model cache writes use restrictive permissions, atomic
   replacement, temporary-file cleanup, finite-number validation, and
   prototype-safe maps. `prepack` rebuilds `dist`; both CLI binaries are
-  executable; `./errors` is an additive public export.
+  declared in the package `bin` map with Node shebangs; `./errors` is an
+  additive public export.
+- The OpenCode config hook injects eight Qoder slash-command definitions at
+  runtime, preserves same-named user commands, and does not require manual
+  `opencode.json` edits.
 
 ## Exception and failure behavior
 
@@ -164,7 +169,7 @@ contract. These remain accepted risks.
 
 ## Tools and MCP
 
-- Host-owned native aliases are mapped against the SDK 1.0.30 canonical set,
+- Host-owned native aliases are mapped against the SDK 1.0.31 canonical set,
   including `WebFetch`, `WebSearch`, `ImageGen`, `ImageSearch`, `NotebookEdit`,
   `Task*`, `TodoWrite`, and `UpdateGoal`.
 - Configured `mcp__server__tool` calls remain provider-owned by Qoder and are
@@ -227,17 +232,18 @@ tool unreachable.
   root/provider/TUI paths and add `./errors`.
 - `prepack` rebuilds TypeScript output. The packed artifact contains `dist`,
   both binaries, required documentation, and no source/tests/lockfile.
-- Both packed binaries retain mode 755. Clean dev-omitted installation and
-  root/provider/errors import probes pass. Optional TUI peers are intentionally
-  host-provided.
-- npm already has `opencode-qoder-bridge@0.1.8` as `latest`. The working tree
-  now documents and prepares version `0.1.9`, but it has not been committed,
-  tagged, or published.
-- The host is Node `24.13.0`, below the declared `^24.15.0` 24.x range, so npm
-  reports `EBADENGINE`; the declared Node 22.22.2 path remains supported. npm's
-  clean consumer also warned that SDK/native install scripts were not approved;
-  normal installation with the allowlist is required for the bundled worker
-  runtime.
+- Both source CLI files retain mode 755 in Git, are included in the package
+  `bin` map, and run from a clean consumer. The `0.1.11` artifact contains 93
+  files, is 104,764 bytes compressed and 466,075 bytes unpacked, and passes
+  root/provider/errors import probes in a clean dev-omitted consumer.
+  Optional TUI peers are intentionally host-provided.
+- npm currently reports `opencode-qoder-bridge@0.1.10` as `latest`. The working
+  tree prepares `0.1.11`, but it has not been committed, tagged, or published.
+- The host is Node `24.15.0`, which satisfies the declared Node range. npm 12
+  blocks transitive install scripts in a clean consumer by default; explicitly
+  approving and rebuilding `@qoder-ai/qoder-agent-sdk@1.0.31` downloaded and
+  checksum-verified its Worker runtime. This policy is controlled by the
+  consuming project and cannot be silently overridden by this package.
 
 ## Tests and validation performed
 
@@ -246,14 +252,17 @@ Latest deterministic run after the final source/test changes:
 | Command/check | Result |
 | --- | --- |
 | `npm run typecheck` | Passed |
-| `npm test` | Passed: 140 total, 138 passed, 2 skipped, 0 failed; the Qoder-backed stress probe is now opt-in with `QODER_STRESS_E2E=1` |
-| `QODER_E2E=1 npm run test:e2e` | Blocked by upstream Qoder error 118: the authenticated account reached its credit usage limit; no bridge assertion completed |
+| `npm test` | Passed: 146 total, 144 passed, 2 skipped, 0 failed |
+| `npm run test:stress` | Passed: 14 total, 13 passed, 1 expected skip for the credentialed live-abort probe |
+| `QODER_E2E=1 npm run test:e2e` | Not passed: stopped with `Qoder authentication is required` because no Qoder credential was available; no upstream turn executed |
 | `npm audit --audit-level=low` | Passed: 0 vulnerabilities |
 | `npm audit --omit=dev --audit-level=low` | Passed: 0 vulnerabilities |
 | `git diff --check` | Passed |
-| `npm pack --dry-run --json` | Passed for `0.1.9`; latest measured artifact was 89 files, 90,387 bytes compressed / 392,919 bytes unpacked |
-| `npm whoami` | Blocked: npm registry returned 401 Unauthorized |
-| Fresh `npm install --omit=dev` consumer | Passed; 118 packages, 0 vulnerabilities, root/provider/errors imports, both binaries mode 755 |
+| `npm pack --dry-run --json` | Passed for `0.1.11`; 93 files, 104,764 bytes compressed / 466,075 bytes unpacked |
+| `npm publish --dry-run --access public` | Passed prepublish checks and manifest validation; actual publish still requires npm authentication |
+| `npm whoami` | Blocked: npm registry returned `ENEEDAUTH` |
+| Fresh packed consumer with scripts ignored | Passed; 118 packages, imports, both binaries, and dependency tree |
+| Approved SDK Worker rebuild in packed consumer | Passed; Worker archive downloaded and checksum verified |
 | `npm ls --omit=dev --depth=1` | Passed; optional TUI peers were absent as expected in the hostless consumer |
 | Two-process session lease probe | Passed; same logical session turns serialized |
 | Two-process cost flush regression | Passed; no lost turns |
@@ -270,18 +279,19 @@ Covered and passing:
   input limits;
 - concurrent session writes, same-session lease contention, reset behavior,
   concurrent TUI registration, coalesced model writes, 200 rapid cost turns,
-  1,000-message prompt processing, 10 concurrent aborted streams, and
-  cross-process cost/session probes;
+  1,000-message prompt processing, and cross-process cost/session probes;
 - malformed MCP transports, embedded URL credentials, control-character
   headers, oversized collections, timeout bounds, command argument handling,
   prompt structural-tag injection, malformed base64, 64-image aggregate
-  limiting, package exports, clean installation, and executable modes.
+  limiting, package exports, clean installation, bin declarations, and CLI
+  invocation.
 
 Not performed or not fully validated:
 
 - no authenticated Qoder CLI/Worker turn, real auth-expiry callback, real
-  Qoder tool side-effect counter, live MCP stdio/HTTP/SSE server, or real
-  cancellation/transport crash was available;
+  Qoder tool side-effect counter, live MCP stdio/HTTP/SSE server, real
+  cancellation/transport crash, or credentialed ten-concurrent-abort probe
+  was available;
 - no Windows, Bun, network-filesystem, ENOSPC, permission-denied, clock-jump,
   or multi-account shared-state integration run was performed;
 - no formal consumer backpressure benchmark or cross-request idempotency
@@ -347,13 +357,13 @@ result, disposition, regression coverage, and remaining compatibility risk.
 | LED-001 | Galileo | cost ledger | MEDIUM / high | two atomic last-writer-wins processes lost one increment | Ampere reproduced; lock-and-merge regression passes | VERIFIED | cross-process lock and pending-entry merge | two-process cost test | Ledger lock still depends on local filesystem semantics |
 | CAT-001 | Galileo | dynamic model cache | MEDIUM / high | cache is process/state-dir global, not account/scene keyed | Council retained as product/isolation policy risk | ACCEPTED RISK | Keep stable cache behavior; future account/scene key | snapshot replacement/cache tests | Shared accounts/scenes can see stale catalog data |
 | PKG-001 | Sartre/Arendt | runtime package boundary | HIGH / high | dev-omitted install could not load runtime plugin helper | Arendt clean consumer imports pass | VERIFIED | Move plugin helper to production dependencies | pack/import checks | Adds required runtime dependency |
-| REL-001 | Sartre/Arendt | generated release artifact | HIGH / high | stale/missing dist and prepack omissions were possible | Arendt confirms 89-file packed artifact and dist parity | VERIFIED | `prepack: npm run build`; required exports/files checked | pack dry-run/consumer checks | Release still requires version bump |
-| COMP-001 | Sartre/Arendt | runtime engines/peers | MEDIUM / high | host Node 24.13 emits engine warning; TUI peers absent in clean server consumer | Package remains compatible with declared supported Node/host model | ACCEPTED RISK | Retain declared range and optional peer contract | clean install/npm ls | Run release CI on Node 22.22.2 or Node 24.15+ |
-| E2E-001 | Parfit/Hubble/Arendt | credentialed integration | HIGH / certain limitation | `QODER_E2E=1` was attempted, but Qoder returned error 118 because the account reached its credit usage limit | Live upstream behavior remains unverified; the failure is external to the bridge | UNRESOLVED RISK | Re-run the authenticated release gate after credits are available | `QODER_E2E=1 npm run test:e2e` | Actual upstream streaming/auth/tool/model behavior remains unverified |
+| REL-001 | Sartre/Arendt | generated release artifact | HIGH / high | stale/missing dist and prepack omissions were possible | Arendt confirms 93-file packed artifact and dist parity | VERIFIED | `prepack: npm run build`; required exports/files checked | pack dry-run/consumer checks | Release still requires maintainer commit/tag and npm publish |
+| COMP-001 | Sartre/Arendt | runtime engines/peers | MEDIUM / high | Initial audit host Node 24.13 emitted an engine warning; TUI peers are absent in a clean server consumer | Current host Node 24.15 meets the declared range; optional peer contract remains intentional | ACCEPTED RISK | Retain declared range and optional peer contract | clean install/npm ls | Run release CI on Node 22.22.2 or Node 24.15+ |
+| E2E-001 | Parfit/Hubble/Arendt | credentialed integration | HIGH / certain limitation | `QODER_E2E=1` stopped before a turn because this environment has no Qoder credential | Live upstream behavior remains unverified; the failure is environmental and external to the bridge | UNRESOLVED RISK | Re-run the authenticated release gate with a real Qoder login/PAT | `QODER_E2E=1 npm run test:e2e` | Actual upstream streaming/auth/tool/model behavior remains unverified |
 | LIFE-001 | Gibbs | persistence/teardown liveness | MEDIUM / medium | a stalled filesystem call or non-cooperative SDK return can outlive host deadline | Challenge retained as transport/filesystem residual | ACCEPTED RISK | Bounded SDK cleanup and documented local-FS assumptions | abort/cleanup tests | A truly hard kill requires process/SDK support outside this package |
 | BP-001 | Gibbs | stream backpressure | MEDIUM / medium | `ReadableStream` enqueue path has no producer throttling | Not safely fixable without changing SDK/host stream contract | ACCEPTED RISK | Keep safe enqueue and bounded payloads | slow/large stress coverage is partial | Very slow consumers can accumulate queued parts |
 | IDEM-001 | Fermat/Parfit | side-effect idempotency | HIGH / medium | arbitrary host tools cannot be safely retried/deduped across requests without transaction IDs | No duplicate found in exact-ID probes; upstream contract gap remains | ACCEPTED RISK | Exact tool-ID/replay protections and deny ownership | duplicate tool tests | Host integrations needing stronger guarantees must supply idempotency |
-| REL-002 | Arendt | publish identity | MEDIUM / certain | npm already serves `0.1.8`; a release must use a new documented version and matching tag | Local version/changelog preparation now uses `0.1.9`; publish remains unauthenticated | FIXED | Bump/document `0.1.9`; commit/tag before publishing | package version/pack inspection | Do not publish until npm auth and release tag/commit are ready |
+| REL-002 | Arendt | publish identity | MEDIUM / certain | npm currently serves `0.1.10`; a release must use a new documented version and matching tag | Local version/changelog preparation uses `0.1.11`; publish remains unauthenticated and untagged | PENDING MAINTAINER RELEASE | Bump/document `0.1.11`; commit/tag before publishing | package version/pack inspection | Do not publish until the live E2E gate, npm auth, and release tag/commit are ready |
 
 ## Remaining and unresolved risks
 
@@ -373,7 +383,7 @@ result, disposition, regression coverage, and remaining compatibility risk.
    servers. Do not expose this configuration surface to untrusted tenants.
 6. MCP OAuth is unsupported through the current public SDK shape, and prefix
    ownership reserves all `mcp__...` host names.
-7. Release `0.1.9` must be committed/tagged after the live gate and npm
+7. Release `0.1.11` must be committed/tagged after the live gate and npm
    authentication are available. Release CI should use a declared Node engine.
    Clean installs must approve the SDK/native install
    scripts when the bundled worker is required.
@@ -384,7 +394,7 @@ result, disposition, regression coverage, and remaining compatibility risk.
   directory and local filesystem semantics suitable for lock files.
 - One state directory represents one trusted user/account. Session keys are
   stable logical conversation names; workspace identity is the physical cwd.
-- The installed contracts remain `@qoder-ai/qoder-agent-sdk@1.0.30`,
+- The installed contracts remain `@qoder-ai/qoder-agent-sdk@1.0.31`,
   `@opencode-ai/plugin@1.18.19`, and the AI SDK provider declarations used by
   this tree.
 - OpenCode supplies optional TUI peer packages when the TUI entry point is
@@ -392,9 +402,10 @@ result, disposition, regression coverage, and remaining compatibility risk.
 
 ## Final decision
 
-**READY WITH KNOWN RISKS** for qualified local/trusted use. The deterministic
-hardening and package checks pass, and the previously reproduced high-severity
-bugs are fixed with regression coverage. Do not publish `0.1.9` until Qoder
-credits permit a passing authenticated E2E run, npm authentication is restored,
-and the release commit/tag is created; retain the unresolved/accepted risks
-above in release notes.
+**READY FOR MAINTAINER REVIEW WITH KNOWN RISKS** for qualified
+local/trusted use. The deterministic hardening, stress, package, consumer, and
+public publish dry-run checks pass, and the previously reproduced high-severity
+bugs are fixed with regression coverage. Do not publish `0.1.11` until a
+credentialed Qoder E2E run passes, npm authentication is restored, and the
+release commit/tag is created; retain the unresolved/accepted risks above in
+release notes.

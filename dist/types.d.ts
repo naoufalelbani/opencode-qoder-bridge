@@ -1,4 +1,4 @@
-import type { EvolutionOptions } from "@qoder-ai/qoder-agent-sdk";
+import type { EvolutionOptions, MemoryOptions, SecurityScanOptions } from "@qoder-ai/qoder-agent-sdk";
 export interface QoderModelDef {
     id: string;
     name: string;
@@ -31,6 +31,10 @@ export interface QoderBridgeOptions {
     vpcEndpoint?: string;
     /** Opt-in skill evolution configuration for the session. */
     evolution?: EvolutionOptions;
+    /** Opt-in Qoder-native memory generation and context consumption. */
+    memory?: MemoryOptions;
+    /** Opt-in built-in code security checks; every switch defaults to false. */
+    securityScan?: SecurityScanOptions;
     /** Extra CLI flags forwarded to qodercli; accepts bare or `--`-prefixed names. */
     extraArgs?: Record<string, string | null>;
     /** Bridged MCP server configs keyed by server name. */

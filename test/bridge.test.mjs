@@ -1,7 +1,11 @@
 import { test, describe, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DIST = new URL("../dist/", import.meta.url).pathname;
+const DIST_URL = new URL("../dist/", import.meta.url);
+const DIST = DIST_URL.href;
+const DIST_PATH = fileURLToPath(DIST_URL);
 
 describe("provider", () => {
   test("createQoderProvider returns languageModel/textEmbeddingModel/imageModel", async () => {
@@ -149,7 +153,7 @@ describe("language-model", () => {
     const { QoderLanguageModel } = await import(DIST + "language-model.js");
     const lm = new QoderLanguageModel("auto", { cwd: "/tmp/qoder-project" });
     const options = lm.buildQueryOptions(null, "session-cwd", new AbortController(), false);
-    assert.equal(options.cwd, "/tmp/qoder-project");
+    assert.equal(options.cwd, resolve("/tmp/qoder-project"));
   });
 
   test("maps planMode, proxy, and evolution options to SDK options", async () => {
@@ -163,6 +167,17 @@ describe("language-model", () => {
     assert.equal(options.planMode, true);
     assert.equal(options.proxy, "http://127.0.0.1:8888");
     assert.deepEqual(options.evolution, { skill: { mode: "native" } });
+  });
+
+  test("maps memory and security scan options to SDK options", async () => {
+    const { QoderLanguageModel } = await import(DIST + "language-model.js");
+    const lm = new QoderLanguageModel("auto", {
+      memory: { mode: "native", userScope: false },
+      securityScan: { l1StaticCheck: true, l2LightweightScan: true },
+    });
+    const options = lm.buildQueryOptions(null, "session-safety", new AbortController(), false);
+    assert.deepEqual(options.memory, { mode: "native", userScope: false });
+    assert.deepEqual(options.securityScan, { l1StaticCheck: true, l2LightweightScan: true });
   });
 
   test("falls back to HTTPS_PROXY / HTTP_PROXY when proxy option is omitted", async () => {
@@ -193,7 +208,7 @@ describe("language-model", () => {
 describe("usage shape (v3 native)", () => {
   test("makeUsage produces nested v3 token fields", async () => {
     const src = await import("node:fs").then(fs =>
-      fs.promises.readFile(DIST + "language-model.js", "utf8")
+      fs.promises.readFile(DIST_PATH + "language-model.js", "utf8")
     );
     assert.ok(src.includes("inputTokens: {"), "must have nested inputTokens");
     assert.ok(src.includes("outputTokens: {"), "must have nested outputTokens");
@@ -714,6 +729,18 @@ describe("plugin config hook", () => {
     assert.equal(sessionsResult.title, "Qoder Sessions");
   });
 
+  test("tool section has MCP controls and session fork", async () => {
+    const plugin = (await import(DIST + "index.js")).default;
+    const instance = await plugin();
+    assert.ok(instance.tool.qoder_mcp_status);
+    assert.ok(instance.tool.qoder_mcp_auth);
+    assert.ok(instance.tool.qoder_session_fork);
+    const authResult = await instance.tool.qoder_mcp_auth.execute({ server: "" });
+    assert.ok(authResult.output.includes("valid MCP server name"));
+    const forkResult = await instance.tool.qoder_session_fork.execute({});
+    assert.ok(forkResult.output.includes("No source session ID"));
+  });
+
   test("qoder_session_reset handles key parameter, 'all', and unconfigured session", async () => {
     const plugin = (await import(DIST + "index.js")).default;
     const instance = await plugin();
@@ -732,13 +759,171 @@ describe("plugin config hook", () => {
     assert.ok(allResult.output.includes("Reset all persisted Qoder sessions"));
   });
 
-  test("does not register a model-backed quota command", async () => {
+  test("does not inject model-backed slash commands into server config", async () => {
     const plugin = (await import(DIST + "index.js")).default;
     const instance = await plugin();
 
-    const config = {};
+    const config = {
+      command: {
+        custom: { template: "keep me", description: "Custom command" },
+        qoder_usage: { template: "user override" },
+      },
+    };
     await instance.config(config);
-    assert.equal(config.command, undefined);
+    assert.deepEqual(config.command.custom, { template: "keep me", description: "Custom command" });
+    assert.deepEqual(config.command.qoder_usage, { template: "user override" });
+  });
+});
+
+describe("local TUI commands", () => {
+  test("registers all Qoder commands through the local keymap layer", async () => {
+    const { QODER_COMMANDS } = await import(DIST + "command-actions.js");
+    const { registerInstantCommands } = await import(DIST + "tui.js");
+    const layers = [];
+    const disposers = [];
+    const api = {
+      keymap: {
+        registerLayer(layer) {
+          layers.push(layer);
+          return () => undefined;
+        },
+      },
+      lifecycle: {
+        onDispose(disposer) {
+          disposers.push(disposer);
+        },
+      },
+      command: undefined,
+    };
+    const context = {
+      configuredCwd: process.cwd(),
+      configuredBridgeOptions: {},
+      pendingMcpAuth: new Map(),
+    };
+
+    registerInstantCommands(api, context);
+
+    assert.equal(layers.length, 1);
+    assert.equal(layers[0].commands.length, QODER_COMMANDS.length);
+    assert.deepEqual(
+      layers[0].commands.map((command) => command.slashName),
+      QODER_COMMANDS.map((command) => command.name),
+    );
+    assert.deepEqual(
+      layers[0].commands.filter((command) => !command.hidden).map((command) => command.slashName),
+      ["qoder_usage", "qoder_models"],
+    );
+    assert.equal(layers[0].commands.find((command) => command.slashName === "qoder_plan_mode").hidden, true);
+    assert.equal(layers[0].commands.find((command) => command.slashName === "qoder_plan_mode").enabled, undefined);
+    assert.equal(disposers.length, 1);
+    assert.equal(typeof layers[0].commands[0].run, "function");
+  });
+
+  test("reveals conditional commands when their configuration is present", async () => {
+    const { registerInstantCommands } = await import(DIST + "tui.js");
+    const layers = [];
+    const api = {
+      keymap: {
+        registerLayer(layer) {
+          layers.push(layer);
+          return () => undefined;
+        },
+      },
+      lifecycle: { onDispose() {} },
+      command: undefined,
+    };
+    registerInstantCommands(api, {
+      configuredCwd: process.cwd(),
+      configuredBridgeOptions: {
+        sessionPersistence: true,
+        sessionKey: "project-main",
+        mcpServers: { docs: { type: "http", url: "https://example.test/mcp" } },
+      },
+      pendingMcpAuth: new Map(),
+    });
+
+    const hidden = new Map(layers[0].commands.map((command) => [command.slashName, command.hidden]));
+    assert.equal(hidden.get("qoder_sessions"), false);
+    assert.equal(hidden.get("qoder_session_reset"), false);
+    assert.equal(hidden.get("qoder_session_fork"), false);
+    assert.equal(hidden.get("qoder_mcp_status"), false);
+    assert.equal(hidden.get("qoder_mcp_auth"), false);
+    assert.equal(hidden.get("qoder_plan_mode"), true);
+  });
+
+  test("executes plan mode locally and returns a display result", async () => {
+    const { executeQoderCommand } = await import(DIST + "command-actions.js");
+    const result = await executeQoderCommand("qoder_plan_mode", "", {
+      configuredCwd: process.cwd(),
+      configuredBridgeOptions: {},
+      pendingMcpAuth: new Map(),
+    });
+    assert.equal(result.title, "Qoder Plan Mode");
+    assert.match(result.output, /Plan Mode/);
+  });
+
+  test("result dialogs close on Esc and OK without recursive clear", async () => {
+    const { registerInstantCommands } = await import(DIST + "tui.js");
+    const layers = [];
+    const replacements = [];
+    let current;
+    let clearCalls = 0;
+    let open = false;
+    const api = {
+      keymap: {
+        registerLayer(layer) {
+          layers.push(layer);
+          return () => undefined;
+        },
+      },
+      lifecycle: { onDispose() {} },
+      ui: {
+        dialog: {
+          replace(render, onClose) {
+            current = { render, onClose };
+            replacements.push(current);
+            open = true;
+          },
+          clear() {
+            clearCalls += 1;
+            open = false;
+            current = undefined;
+          },
+        },
+        DialogAlert(props) {
+          return { props };
+        },
+        toast() {},
+      },
+    };
+    const context = {
+      configuredCwd: process.cwd(),
+      configuredBridgeOptions: {},
+      pendingMcpAuth: new Map(),
+    };
+
+    registerInstantCommands(api, context);
+    const planCommand = layers[0].commands.find((command) => command.slashName === "qoder_plan_mode");
+    assert.ok(planCommand);
+
+    planCommand.run();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(replacements.length, 1);
+    assert.equal(typeof current.render, "function");
+    assert.equal(current.onClose, undefined, "host Esc must pop the dialog instead of recursively clearing it");
+
+    current.onClose?.();
+    open = false;
+    current = undefined;
+    assert.equal(open, false);
+
+    planCommand.run();
+    await new Promise((resolve) => setImmediate(resolve));
+    const alert = current.render();
+    assert.equal(alert.props.title, "Qoder Plan Mode");
+    alert.props.onConfirm();
+    assert.equal(open, false);
+    assert.equal(clearCalls, 1, "OK must clear the active dialog");
   });
 });
 
@@ -768,10 +953,14 @@ describe("SDK dependency resolution", () => {
     assert.equal(typeof sdk.WorkerTransport, "function");
   });
 
-  test("SDK exports listSessions and startDaemon in SDK 1.0.30", async () => {
+  test("SDK 1.0.31 exports session controls and runtime helpers", async () => {
     const sdk = await import("@qoder-ai/qoder-agent-sdk");
     assert.equal(typeof sdk.listSessions, "function");
     assert.equal(typeof sdk.startDaemon, "function");
+    assert.equal(typeof sdk.forkSession, "function");
+    assert.equal(typeof sdk.startup, "function");
+    assert.equal(typeof sdk.measureSessionStoreEntryPayloadBytes, "function");
+    assert.equal(typeof sdk.DaemonRpcError, "function");
   });
 });
 
@@ -791,7 +980,7 @@ describe("stream protocol shape", () => {
     // Mock: override doStream to test the ReadableStream shape
     // We can't easily mock the SDK, so we verify the source structure
     const src = await import("node:fs").then(fs =>
-      fs.promises.readFile(DIST + "language-model.js", "utf8")
+      fs.promises.readFile(DIST_PATH + "language-model.js", "utf8")
     );
     assert.ok(
       src.includes('{ type: "stream-start", warnings: [] }'),
@@ -808,7 +997,7 @@ describe("stream protocol shape", () => {
 
   test("doGenerate aggregates stream into content array", async () => {
     const src = await import("node:fs").then(fs =>
-      fs.promises.readFile(DIST + "language-model.js", "utf8")
+      fs.promises.readFile(DIST_PATH + "language-model.js", "utf8")
     );
     assert.ok(src.includes("async doGenerate(options)"), "must have doGenerate");
     assert.ok(src.includes("const { stream } = await this.doStream(options)"), "doGenerate uses doStream");

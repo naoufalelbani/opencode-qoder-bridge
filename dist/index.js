@@ -1,17 +1,20 @@
 import { tool } from "@opencode-ai/plugin";
-import { listSessions } from "@qoder-ai/qoder-agent-sdk";
+import { forkSession, listSessions } from "@qoder-ai/qoder-agent-sdk";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels, listModels } from "./models.js";
 import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { getLiveUsage, formatUsageReport } from "./usage.js";
 import { summarize, formatCost } from "./cost.js";
 import { ensureTuiRegistered } from "./tui-register.js";
-import { clearAllSessions, deleteQoderSessionForCwd } from "./session-store.js";
+import { clearAllSessions, deleteQoderSessionForCwd, getQoderSessionForCwd } from "./session-store.js";
 import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
+import { formatMcpStatuses, openSdkControlSession, withMcpControlTimeout } from "./sdk-control.js";
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const MODEL_STARTUP_DISCOVERY_TIMEOUT_MS = 10_000;
+const MCP_AUTH_TTL_MS = 10 * 60 * 1000;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
+const CONTROL_CHAR_TEST = /[\u0000-\u001f\u007f-\u009f]/;
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -82,8 +85,38 @@ const plugin = async (input) => {
     let configuredSessionKey;
     let configuredSessionId;
     let configuredCwd = workspaceCwd ?? process.cwd();
+    let configuredBridgeOptions = {};
     let modelEnvironment = { ...process.env };
     let modelOptions = { timeoutMs: MODEL_STARTUP_DISCOVERY_TIMEOUT_MS };
+    const pendingMcpAuth = new Map();
+    const closePendingMcpAuth = async (serverName) => {
+        const pending = pendingMcpAuth.get(serverName);
+        if (!pending)
+            return;
+        pendingMcpAuth.delete(serverName);
+        clearTimeout(pending.timer);
+        await pending.close();
+    };
+    const savePendingMcpAuth = async (serverName, session) => {
+        await closePendingMcpAuth(serverName);
+        const pending = {
+            query: session.query,
+            close: session.close,
+            timer: undefined,
+        };
+        const timer = setTimeout(() => {
+            if (pendingMcpAuth.get(serverName) !== pending)
+                return;
+            pendingMcpAuth.delete(serverName);
+            void pending.close().catch((error) => {
+                debug("Could not close expired MCP auth session:", describeError(error));
+            });
+        }, MCP_AUTH_TTL_MS);
+        if (typeof timer.unref === "function")
+            timer.unref();
+        pending.timer = timer;
+        pendingMcpAuth.set(serverName, pending);
+    };
     if (input) {
         if (isDebugEnabled())
             debug("Plugin initializing");
@@ -149,6 +182,7 @@ const plugin = async (input) => {
                     ...bridgedMcp,
                 };
             }
+            configuredBridgeOptions = mergedOptions;
             config.provider.qoder = {
                 ...existing,
                 npm: existing.npm ?? PROVIDER_URL,
@@ -286,6 +320,158 @@ const plugin = async (input) => {
                     catch (error) {
                         debug("listSessions failed:", describeError(error));
                         return { title: "Qoder Sessions", output: `Failed to list sessions: ${describeError(error)}` };
+                    }
+                },
+            }),
+            qoder_session_fork: tool({
+                description: "Fork a persisted Qoder session into a new independent session without changing the active session mapping.",
+                args: {
+                    sessionId: tool.schema.string().optional().describe("Source Qoder session ID (defaults to the configured/resumed session)."),
+                    dir: tool.schema.string().optional().describe("Working directory containing the session transcript (optional, defaults to the active project)."),
+                    title: tool.schema.string().optional().describe("Optional title for the fork."),
+                    upToMessageId: tool.schema.string().optional().describe("Optional transcript message UUID; fork only the history through this message."),
+                },
+                async execute(args) {
+                    try {
+                        const requestedId = typeof args.sessionId === "string" ? args.sessionId.trim() : "";
+                        const dir = typeof args.dir === "string" && args.dir.trim() ? args.dir.trim() : configuredCwd;
+                        let sourceId = requestedId || configuredSessionId;
+                        if (!sourceId && configuredSessionKey) {
+                            const persisted = await getQoderSessionForCwd(configuredSessionKey, dir);
+                            sourceId = persisted?.qoderSessionId;
+                        }
+                        if (!sourceId) {
+                            return {
+                                title: "Qoder Session Fork",
+                                output: "No source session ID is available. Provide sessionId or configure session persistence first.",
+                            };
+                        }
+                        const title = typeof args.title === "string" && args.title.trim() ? args.title.trim() : undefined;
+                        const upToMessageId = typeof args.upToMessageId === "string" && args.upToMessageId.trim()
+                            ? args.upToMessageId.trim()
+                            : undefined;
+                        const forked = await forkSession(sourceId, {
+                            dir,
+                            ...(title ? { title } : {}),
+                            ...(upToMessageId ? { upToMessageId } : {}),
+                        });
+                        return {
+                            title: "Qoder Session Fork",
+                            output: [
+                                `Forked session ${safeDisplay(sourceId, "unknown", 256)}.`,
+                                `New session ID: ${safeDisplay(forked.sessionId, "unknown", 256)}`,
+                                "The active provider mapping was left unchanged; use the new ID as sessionId when you want to continue the fork.",
+                            ].join("\n"),
+                        };
+                    }
+                    catch (error) {
+                        return { title: "Qoder Session Fork", output: `Failed to fork session: ${describeError(error)}` };
+                    }
+                },
+            }),
+            qoder_mcp_status: tool({
+                description: "Inspect Qoder MCP server connection and OAuth status without sending a model turn.",
+                args: {},
+                async execute() {
+                    let control;
+                    try {
+                        control = await openSdkControlSession(configuredBridgeOptions, configuredCwd);
+                        const statuses = await withMcpControlTimeout(control.query.mcpServerStatus(), "status request");
+                        return { title: "Qoder MCP Status", output: formatMcpStatuses(statuses) };
+                    }
+                    catch (error) {
+                        return { title: "Qoder MCP Status", output: `Failed to inspect MCP status: ${describeError(error)}` };
+                    }
+                    finally {
+                        if (control)
+                            await control.close();
+                    }
+                },
+            }),
+            qoder_mcp_auth: tool({
+                description: "Start or complete OAuth authentication for a configured Qoder MCP server.",
+                args: {
+                    server: tool.schema.string().describe("Configured MCP server name."),
+                    callbackUrl: tool.schema.string().optional().describe("OAuth callback URL copied after authorizing (omit to start the flow)."),
+                    redirectUri: tool.schema.string().optional().describe("Optional redirect URI to use when starting OAuth."),
+                },
+                async execute(args) {
+                    const serverName = typeof args.server === "string" ? args.server.trim() : "";
+                    const callbackUrl = typeof args.callbackUrl === "string" ? args.callbackUrl.trim() : "";
+                    const redirectUri = typeof args.redirectUri === "string" ? args.redirectUri.trim() : "";
+                    if (!serverName || serverName.length > 256 || CONTROL_CHAR_TEST.test(serverName)) {
+                        return { title: "Qoder MCP OAuth", output: "Provide a valid MCP server name." };
+                    }
+                    if (callbackUrl && (callbackUrl.length > 16_384 || CONTROL_CHAR_TEST.test(callbackUrl))) {
+                        return { title: "Qoder MCP OAuth", output: "The callback URL is invalid or too long." };
+                    }
+                    if (redirectUri && (redirectUri.length > 16_384 || CONTROL_CHAR_TEST.test(redirectUri))) {
+                        return { title: "Qoder MCP OAuth", output: "The redirect URI is invalid or too long." };
+                    }
+                    const pending = pendingMcpAuth.get(serverName);
+                    if (callbackUrl && !pending) {
+                        return {
+                            title: "Qoder MCP OAuth",
+                            output: `No pending OAuth flow for ${safeDisplay(serverName, "unknown")}. Call qoder_mcp_auth without callbackUrl first, then authorize using the returned URL.`,
+                        };
+                    }
+                    if (callbackUrl && pending) {
+                        try {
+                            await withMcpControlTimeout(pending.query.mcpSubmitOAuthCallbackUrl(serverName, callbackUrl), "OAuth callback");
+                            pendingMcpAuth.delete(serverName);
+                            clearTimeout(pending.timer);
+                            await pending.close();
+                            return {
+                                title: "Qoder MCP OAuth",
+                                output: `OAuth authentication completed for ${safeDisplay(serverName, "unknown")}. Run qoder_mcp_status to verify the connection.`,
+                            };
+                        }
+                        catch (error) {
+                            return {
+                                title: "Qoder MCP OAuth",
+                                output: `OAuth callback failed: ${describeError(error)} The pending flow was retained for another callback attempt.`,
+                            };
+                        }
+                    }
+                    await closePendingMcpAuth(serverName);
+                    let control;
+                    try {
+                        control = await openSdkControlSession(configuredBridgeOptions, configuredCwd);
+                        const result = await withMcpControlTimeout(control.query.mcpAuthenticate(serverName, redirectUri || undefined), "OAuth authentication");
+                        if (!result.requiresUserAction) {
+                            await control.close();
+                            control = undefined;
+                            return {
+                                title: "Qoder MCP OAuth",
+                                output: `${safeDisplay(serverName, "unknown")} is already authenticated (or was refreshed silently).`,
+                            };
+                        }
+                        if (!result.authUrl) {
+                            await control.close();
+                            control = undefined;
+                            return {
+                                title: "Qoder MCP OAuth",
+                                output: `Qoder requires user action for ${safeDisplay(serverName, "unknown")}, but did not return an authorization URL.`,
+                            };
+                        }
+                        await savePendingMcpAuth(serverName, control);
+                        control = undefined;
+                        return {
+                            title: "Qoder MCP OAuth",
+                            output: [
+                                `Authorize ${safeDisplay(serverName, "unknown")} by opening this URL:`,
+                                safeDisplay(result.authUrl, "(authorization URL unavailable)", 16_384),
+                                "After the redirect, call qoder_mcp_auth again with the same server and the complete callbackUrl.",
+                                `The pending flow expires in ${Math.round(MCP_AUTH_TTL_MS / 60_000)} minutes.`,
+                            ].join("\n"),
+                        };
+                    }
+                    catch (error) {
+                        return { title: "Qoder MCP OAuth", output: `Failed to start OAuth: ${describeError(error)}` };
+                    }
+                    finally {
+                        if (control)
+                            await control.close();
                     }
                 },
             }),

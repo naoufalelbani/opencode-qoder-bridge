@@ -1,27 +1,28 @@
 # Releasing
 
-## Before the first release
+## Before a public release
 
 1. Confirm that publishing this integration and using the Qoder name and SDK
    complies with the current Qoder Product Service Terms. Keep any written
    permission with the project records.
-2. Create the public GitHub repository:
+2. Confirm the public GitHub repository is available:
    `https://github.com/naoufalelbani/opencode-qoder-bridge`.
 3. Create an npm account, enable two-factor authentication, and run `npm login`.
 4. Review production dependency advisories with `npm audit --omit=dev`. Do not
    apply forced or major-version fixes without running the full integration
    suite.
 
-## First publish
+## Public publish
 
 Run the complete release gate from a clean checkout:
 
 ```bash
 npm ci
 npm run check
+npm run test:stress
 QODER_E2E=1 npm run test:e2e   # requires qoder login; consumes quota
 npm pack --dry-run
-npm publish
+npm publish --access public
 ```
 
 The end-to-end gate is mandatory for any release that touches
@@ -35,6 +36,15 @@ Verify the registry package and install it through OpenCode:
 
 ```bash
 npm view opencode-qoder-bridge
+```
+
+When validating a clean consumer with npm 12, transitive install scripts may be
+blocked by the consumer's policy. Approve the SDK script and rebuild it when
+the bundled Worker runtime is required:
+
+```bash
+npm install-scripts approve @qoder-ai/qoder-agent-sdk@1.0.31
+npm rebuild @qoder-ai/qoder-agent-sdk
 ```
 
 ```json

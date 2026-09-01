@@ -24,6 +24,7 @@ import { deleteQoderSession, ensureQoderSession, getQoderSessionForCwd, getQoder
 import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { QoderAuthError, QoderSdkResultError } from "./errors.js";
 import { debug, describeError, redactSensitiveText } from "./logger.js";
+import { withTimeout } from "./async-utils.js";
 
 type StreamController = ReadableStreamDefaultController<LanguageModelV3StreamPart>;
 
@@ -33,6 +34,7 @@ const UNSAFE_METADATA_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const DEFAULT_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const CLEANUP_GRACE_MS = 5_000;
+const BACKGROUND_FLUSH_TIMEOUT_MS = 10_000;
 const MAX_SEEN_MESSAGE_IDS = 100_000;
 const MAX_TOOL_INPUT_CHARS = 4_000_000;
 const MAX_OUTPUT_CHARS = 8_000_000;
@@ -77,6 +79,30 @@ const QODER_BUILTIN_NAMES: Record<string, string> = {
   notebook_edit: "NotebookEdit",
   notebookedit: "NotebookEdit",
 };
+
+async function flushSdkBackgroundWork(activeQuery: Query, bridgeOptions: QoderBridgeOptions): Promise<void> {
+  const operations: Array<[string, () => Promise<void>]> = [];
+  if (bridgeOptions.memory && Object.keys(bridgeOptions.memory).length > 0) {
+    operations.push(["memory", () => activeQuery.flushMemory()]);
+  }
+  if (bridgeOptions.evolution) {
+    operations.push(["skill evolution", () => activeQuery.flushSkillEvolution()]);
+  }
+
+  await Promise.all(operations.map(async ([label, operation]) => {
+    try {
+      await withTimeout(
+        operation(),
+        BACKGROUND_FLUSH_TIMEOUT_MS,
+        `Qoder ${label} background work exceeded ${BACKGROUND_FLUSH_TIMEOUT_MS}ms`,
+      );
+    } catch (error) {
+      // Background enrichment must never turn a successful user turn into a
+      // failed generation. The SDK/CLI remains authoritative for its result.
+      debug(`Could not flush Qoder ${label} background work:`, describeError(error));
+    }
+  }));
+}
 
 function toJsonValue(value: unknown, depth = 0, budget: { remaining: number } = { remaining: MAX_METADATA_NODES }): JsonValue | undefined {
   if (depth > 8) return undefined;
@@ -236,7 +262,14 @@ function resolveCwd(value: unknown): string {
 }
 
 function qoderEnvironment(environment: Record<string, string | undefined> | undefined): Record<string, string | undefined> {
-  return environment ? { ...process.env, ...environment } : process.env;
+  if (!environment) return process.env;
+  const merged = { ...process.env, ...environment };
+  // Windows exposes the inherited variable as `Path` on some Node builds,
+  // while SDK callers and child tools commonly address the POSIX spelling.
+  if (process.platform === "win32" && merged.PATH === undefined && merged.Path !== undefined) {
+    merged.PATH = merged.Path;
+  }
+  return merged;
 }
 
 const sessionTails = new Map<string, Promise<void>>();
@@ -646,6 +679,19 @@ export class QoderLanguageModel implements LanguageModelV3 {
                 throw new QoderSdkResultError("incomplete_stream", "Qoder ended the stream before sending a result message");
               }
 
+              // Qoder schedules memory/evolution work after a completed turn.
+              // Drain it before closing the query so the result metadata and
+              // persisted session are not raced by background enrichment.
+              if (
+                !externallyAborted
+                && !timedOut
+                && !state.failed
+                && state.resultReceived
+                && !abortController.signal.aborted
+              ) {
+                await flushSdkBackgroundWork(activeQuery, this.bridgeOptions);
+              }
+
               if (!externallyAborted && !state.failed && !abortController.signal.aborted && this.bridgeOptions.sessionPersistence && sessionKey) {
                 try {
                   await ensureQoderSession(sessionKey, sessionId, cwd, resetEpoch);
@@ -748,6 +794,8 @@ export class QoderLanguageModel implements LanguageModelV3 {
     if (this.bridgeOptions.planMode !== undefined) opts.planMode = this.bridgeOptions.planMode;
     const proxy = this.bridgeOptions.proxy ?? process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY;
     if (proxy) opts.proxy = proxy;
+    if (this.bridgeOptions.memory) opts.memory = this.bridgeOptions.memory;
+    if (this.bridgeOptions.securityScan) opts.securityScan = this.bridgeOptions.securityScan;
     if (this.bridgeOptions.evolution) opts.evolution = this.bridgeOptions.evolution;
 
     const persistSession = Boolean(this.bridgeOptions.sessionId || (this.bridgeOptions.sessionPersistence && sessionKey));

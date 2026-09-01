@@ -4,8 +4,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DIST = new URL("../dist/", import.meta.url).pathname;
+const DIST_URL = new URL("../dist/", import.meta.url);
+const DIST = DIST_URL.href;
+const DIST_PATH = fileURLToPath(DIST_URL);
 
 const STATE_ROOT = mkdtempSync(join(tmpdir(), "qoder-bridge-hardening-"));
 process.env.QODER_BRIDGE_STATE_DIR = STATE_ROOT;
@@ -589,7 +592,7 @@ describe("statusline binary", () => {
       join(dir, "usage.json"),
       JSON.stringify({ totalCostUsd: 1.23, turnCount: 4, totalInputTokens: 10, totalOutputTokens: 5 }),
     );
-    const out = execFileSync(process.execPath, [join(DIST, "..", "bin", "statusline.mjs")], {
+    const out = execFileSync(process.execPath, [join(DIST_PATH, "..", "bin", "statusline.mjs")], {
       encoding: "utf8",
       env: { ...process.env, QODER_BRIDGE_STATE_DIR: dir },
     });
@@ -599,7 +602,7 @@ describe("statusline binary", () => {
   });
 
   test("degrades gracefully for missing ledger", () => {
-    const out = execFileSync(process.execPath, [join(DIST, "..", "bin", "statusline.mjs")], {
+    const out = execFileSync(process.execPath, [join(DIST_PATH, "..", "bin", "statusline.mjs")], {
       encoding: "utf8",
       env: { ...process.env, QODER_BRIDGE_STATE_DIR: join(STATE_ROOT, "does-not-exist") },
     });
@@ -671,7 +674,7 @@ describe("model catalog selection", () => {
   });
 
   test("discovery uses the live fetch strategy with cache fallback in the SDK", async () => {
-    const src = await import("node:fs").then((fs) => fs.promises.readFile(DIST + "models.js", "utf8"));
+    const src = await import("node:fs").then((fs) => fs.promises.readFile(DIST_PATH + "models.js", "utf8"));
     assert.match(src, /fetchStrategy:\s*"live"/, "must request live catalog");
     assert.doesNotMatch(src, /fetchStrategy:\s*"cache"/, "must not serve stale cache as first choice");
     assert.match(src, /initializationResult\(\)/, "must complete SDK initialization before discovery");
