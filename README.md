@@ -85,6 +85,25 @@ name must exist in the npm registry; installing an unpublished package only in
 Once loaded, the plugin injects the `qoder` provider and all models — no manual
 `provider` block required.
 
+### Verify the installation
+
+After changing the plugin or its configuration, restart OpenCode and verify
+that the provider is available:
+
+```bash
+opencode models qoder
+opencode run -m qoder/auto "Reply with one short sentence."
+```
+
+For a local checkout, rebuild before restarting OpenCode:
+
+```bash
+npm run build
+```
+
+Then use the `file:///.../dist/index.js` plugin entry shown above. This avoids
+OpenCode loading an older cached copy of the package.
+
 ## Usage
 
 ```bash
@@ -224,6 +243,53 @@ allow all Qoder tools in a trusted local environment, configure for example:
 Available permission modes are `default`, `acceptEdits`, and
 `bypassPermissions`. Only explicitly configure `bypassPermissions` when the
 host environment is trusted.
+
+#### File editing and shell access
+
+Qoder's `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash` calls are translated
+into OpenCode tool calls. The bridge must not deny these host tools by default:
+if they are denied, Qoder may report that it cannot edit files even though the
+OpenCode project permissions would allow it. Configure an explicit allowlist
+only when you intentionally want to restrict the agent:
+
+```json
+{
+  "provider": {
+    "qoder": {
+      "options": {
+        "permissionMode": "default",
+        "allowedTools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+      }
+    }
+  }
+}
+```
+
+For a trusted disposable workspace, `bypassPermissions` can be used for an
+unattended build:
+
+```json
+{
+  "provider": {
+    "qoder": {
+      "options": {
+        "permissionMode": "bypassPermissions",
+        "allowDangerouslySkipPermissions": true
+      }
+    }
+  }
+}
+```
+
+Do not use that mode for untrusted repositories or prompts. OpenCode remains
+responsible for executing the translated host tools; the bridge only carries
+the tool calls between Qoder and OpenCode.
+
+If generated code is displayed as plain text, that is a model-response
+formatting issue rather than a file-tool issue. Ask Qoder to use Markdown code
+fences in its explanation; files written through `Write` and `Edit` are not
+formatted by the bridge. Run the project's formatter separately when one is
+configured.
 
 Image inputs may reference `file://`, `~/`, or absolute local paths. Only pass
 paths from trusted callers: the bridge bounds image size but does not sandbox
@@ -396,10 +462,14 @@ The plugin registers several built-in OpenCode tools:
 |---------|----------|
 | Auth prompt at startup | Run `qoder login`, then restart opencode |
 | Qoder runtime unavailable | Authenticate with `qoder login` or set `QODER_PERSONAL_ACCESS_TOKEN`; the bridge uses the SDK's bundled Worker runtime for model discovery and can fall back to an installed CLI automatically |
+| Qoder says it cannot read or edit files | Upgrade to the current bridge, rebuild it if using a checkout, confirm the plugin points at `dist/index.js`, and restart OpenCode. Do not add `Read`, `Write`, `Edit`, or `Bash` to `disallowedTools` unless you intend to block them |
+| `invalid JSON for tool read/write` | Use a current bridge build and restart OpenCode so an old cached plugin is not reused. Recent versions normalize Qoder's streamed empty-input prefix before forwarding the complete tool payload |
+| Edits work but the response is not in a code box | Tool execution and response formatting are separate. Ask for fenced Markdown in the response and use the repository's formatter for written files |
 | Model not found | Run `opencode models qoder` or `/qoder_models`; model IDs are account- and scene-specific |
 | Missing models in the model list | Restart OpenCode; the bridge performs a live catalog lookup automatically and falls back to the last scoped catalog plus the built-ins (`lite`, `auto`, `performance`) when offline. If your account serves models in a different Qoder scene, set `QODER_SCENE` before launching OpenCode |
 
-The SDK package `1.0.31` bundles qodercli `1.1.38`. If the bridge discovers a
+The SDK package currently used by this bridge (`1.0.44` or newer) bundles its
+own qodercli runtime. If the bridge discovers a
 separately installed qodercli first, update that CLI through its normal Qoder
 CLI installer too so the MCP OAuth and oversized-image compaction fixes are
 active on that path.
@@ -434,6 +504,19 @@ Set `QODER_BRIDGE_DEBUG=1` before launching opencode to emit detailed bridge
 logs (model fallbacks, stream aborts, live catalog discovery, ledger and
 session-store I/O failures). Warnings that need attention are always printed.
 
+When debugging tool access, search the OpenCode log for tool calls, malformed
+inputs, and permission decisions:
+
+```bash
+rg -n "tool-call|invalid_tool_input|permission" \
+  ~/.local/share/opencode/log/opencode.log
+```
+
+For a local checkout, confirm which plugin file is loaded by using a `file://`
+URL in `opencode.json`; package-name installs may resolve an older cached copy.
+The bridge prints its active model and session information when debug logging
+is enabled.
+
 State files (usage ledger, session mapping, model cache) live under
 `~/.config/opencode-qoder-bridge` by default; override with
 `QODER_BRIDGE_STATE_DIR`, or relocate via `XDG_CONFIG_HOME`.
@@ -447,6 +530,12 @@ QODER_E2E=1 npm run test:e2e
 
 To include the live concurrent-abort probe in the stress suite, set
 `QODER_STRESS_E2E=1` as well as a valid Qoder credential.
+
+The deterministic stress suite does not require a Qoder account. It exercises
+large prompts, concurrent session operations, stream boundaries, tool-call
+deduplication, malformed input handling, and cost-ledger concurrency. The
+authenticated E2E suite starts the real Qoder runtime and may consume quota,
+so run it separately when you specifically need an end-to-end provider check.
 
 ## Security
 

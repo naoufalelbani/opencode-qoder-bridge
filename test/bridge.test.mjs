@@ -141,26 +141,18 @@ describe("language-model", () => {
     assert.deepEqual(options.extraArgs, { "experimental-mcp-load": null, "other-flag": "value" });
   });
 
-  test("derives Qoder tool denies for host-owned functions", async () => {
+  test("does not deny OpenCode host tools", async () => {
     const { QoderLanguageModel } = await import(DIST + "language-model.js");
     const lm = new QoderLanguageModel("auto");
-    const options = lm.buildQueryOptions(null, "session-tools", new AbortController(), false, "auto", process.cwd(), ["Read", "mcp__demo__run"]);
-    assert.deepEqual(options.disallowedTools, ["Read"]);
+    const options = lm.buildQueryOptions(null, "session-tools", new AbortController(), false);
+    assert.equal(options.disallowedTools, undefined);
   });
 
-  test("derives canonical deny names for newer host tool aliases", async () => {
+  test("preserves an explicit Qoder denylist", async () => {
     const { QoderLanguageModel } = await import(DIST + "language-model.js");
-    const lm = new QoderLanguageModel("auto");
-    const options = lm.buildQueryOptions(
-      null,
-      "session-tools-expanded",
-      new AbortController(),
-      false,
-      "auto",
-      process.cwd(),
-      ["web_search", "task_create", "image_gen", "mcp__demo__run"],
-    );
-    assert.deepEqual(options.disallowedTools, ["WebSearch", "TaskCreate", "ImageGen"]);
+    const lm = new QoderLanguageModel("auto", { disallowedTools: ["WebSearch", "WebSearch", "Bash"] });
+    const options = lm.buildQueryOptions(null, "session-tools-expanded", new AbortController(), false);
+    assert.deepEqual(options.disallowedTools, ["WebSearch", "Bash"]);
   });
 
   test("passes an explicit workspace cwd to the SDK", async () => {

@@ -24,44 +24,6 @@ const MAX_OUTPUT_CHARS = 8_000_000;
 const MAX_METADATA_NODES = 2_000;
 const MAX_METADATA_STRING = 4_096;
 const MAX_STOP_REASON_LENGTH = 256;
-const QODER_BUILTIN_NAMES = {
-    read: "Read",
-    write: "Write",
-    edit: "Edit",
-    delete: "Delete",
-    view: "View",
-    bash: "Bash",
-    glob: "Glob",
-    grep: "Grep",
-    task: "Agent",
-    task_create: "TaskCreate",
-    taskcreate: "TaskCreate",
-    task_get: "TaskGet",
-    taskget: "TaskGet",
-    task_update: "TaskUpdate",
-    taskupdate: "TaskUpdate",
-    task_list: "TaskList",
-    tasklist: "TaskList",
-    question: "AskUserQuestion",
-    ask_user_question: "AskUserQuestion",
-    plan_exit: "ExitPlanMode",
-    exit_plan_mode: "ExitPlanMode",
-    skill: "Skill",
-    todo_write: "TodoWrite",
-    todowrite: "TodoWrite",
-    update_goal: "UpdateGoal",
-    updategoal: "UpdateGoal",
-    web_fetch: "WebFetch",
-    webfetch: "WebFetch",
-    web_search: "WebSearch",
-    websearch: "WebSearch",
-    image_gen: "ImageGen",
-    imagegen: "ImageGen",
-    image_search: "ImageSearch",
-    imagesearch: "ImageSearch",
-    notebook_edit: "NotebookEdit",
-    notebookedit: "NotebookEdit",
-};
 async function flushSdkBackgroundWork(activeQuery, bridgeOptions) {
     const operations = [];
     if (bridgeOptions.memory && Object.keys(bridgeOptions.memory).length > 0) {
@@ -358,14 +320,6 @@ function isProviderOwnedTool(rawName, normalizedName, functionToolNames) {
         return true;
     return isProviderExecutedTool(normalizedName, functionToolNames);
 }
-function qoderToolNameForHost(rawName) {
-    const trimmed = rawName.trim();
-    const normalized = normalizeToolName(trimmed);
-    return QODER_BUILTIN_NAMES[normalized] ?? trimmed;
-}
-function isProviderOwnedToolName(name) {
-    return name.trim().toLowerCase().startsWith("mcp__");
-}
 export class QoderLanguageModel {
     specificationVersion = "v3";
     provider = "qoder";
@@ -469,12 +423,6 @@ export class QoderLanguageModel {
         const functionToolNames = new Set((options.tools ?? [])
             .filter((t) => t.type === "function")
             .map((t) => normalizeToolName(t.name)));
-        const hostToolNames = (options.tools ?? [])
-            .filter((tool) => tool.type === "function")
-            // MCP tools configured through mcpServers are executed by Qoder. They
-            // are provider-owned and must not be added to the native denylist.
-            .filter((tool) => !isProviderOwnedToolName(tool.name))
-            .map((tool) => qoderToolNameForHost(tool.name));
         const abortController = new AbortController();
         let qoderQuery = null;
         let externallyAborted = false;
@@ -603,7 +551,7 @@ export class QoderLanguageModel {
                             const prompt = promptHasImage(promptInput)
                                 ? buildPromptIterable(promptInput, model.limit.context, sessionId)
                                 : buildPromptString(promptInput, model.limit.context);
-                            const qoderOptions = this.buildQueryOptions(cli, sessionId, abortController, shouldResume, this.modelId, cwd, hostToolNames, () => {
+                            const qoderOptions = this.buildQueryOptions(cli, sessionId, abortController, shouldResume, this.modelId, cwd, () => {
                                 state.authExpired = true;
                                 try {
                                     abortController.abort();
@@ -721,7 +669,7 @@ export class QoderLanguageModel {
         });
         return { stream };
     }
-    buildQueryOptions(cli, sessionId, abortController, shouldResume, modelId = this.modelId, cwd = resolveCwd(this.bridgeOptions.cwd), hostToolNames = [], onAuthExpired) {
+    buildQueryOptions(cli, sessionId, abortController, shouldResume, modelId = this.modelId, cwd = resolveCwd(this.bridgeOptions.cwd), onAuthExpired) {
         const sessionKey = this.bridgeOptions.sessionKey ?? this.bridgeOptions.sessionId;
         const permissionMode = this.bridgeOptions.permissionMode ?? "default";
         const opts = {
@@ -764,12 +712,13 @@ export class QoderLanguageModel {
             opts.resume = sessionId;
         if (this.bridgeOptions.allowedTools)
             opts.allowedTools = this.bridgeOptions.allowedTools;
-        const disallowedTools = [
-            ...(this.bridgeOptions.disallowedTools ?? []),
-            ...hostToolNames
-                .filter((name) => !isProviderOwnedToolName(name))
-                .map(qoderToolNameForHost),
-        ]
+        // OpenCode host tools (Read/Edit/Write/Bash/etc.) must remain callable by
+        // Qoder so the SDK can emit tool_use blocks that this provider translates
+        // back into OpenCode tool calls. Adding them to --disallowed-tools makes
+        // the model report that it has no filesystem or shell access, which is the
+        // exact failure mode this bridge is meant to avoid. Only an explicit user
+        // denylist belongs here; bridged MCP tools remain provider-owned below.
+        const disallowedTools = (this.bridgeOptions.disallowedTools ?? [])
             .filter((name, index, all) => typeof name === "string" && name.trim() && all.indexOf(name) === index);
         if (disallowedTools.length > 0)
             opts.disallowedTools = disallowedTools;
@@ -960,7 +909,17 @@ function handleStreamEvent(ev, state) {
                 return;
             }
             tb.hasInput = true;
-            tb.input += delta.partial_json;
+            // Some Qoder SDK versions include an eager `{}` on
+            // content_block_start and then stream the complete object again as the
+            // first input_json_delta. Concatenating those two representations yields
+            // `{}{...}`, which is not JSON and makes otherwise valid Read/Write/Edit
+            // calls fail before OpenCode can execute them.
+            if (tb.input.trim() === "{}" && delta.partial_json.trimStart().startsWith("{")) {
+                tb.input = delta.partial_json;
+            }
+            else {
+                tb.input += delta.partial_json;
+            }
             if (!tb.providerExecuted) {
                 safeEnqueue(controller, { type: "tool-input-delta", id: tb.id, delta: delta.partial_json });
             }

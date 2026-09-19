@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.17] - 2026-09-20
+
+### Added
+
+- Documented installation verification, local plugin cache troubleshooting,
+  file-editing permissions, diagnostics, and stress-test workflows.
+- Added regression coverage for Qoder's eager empty streamed tool input.
+
+### Changed
+
+- Updated the bridge to preserve OpenCode host tools such as `Read`, `Write`,
+  `Edit`, and `Bash` instead of deriving Qoder deny rules for them.
+- Normalized streamed tool input when Qoder sends `{}` before the complete
+  JSON payload.
+
+### Fixed
+
+- Prevented valid streamed Read, Write, and Edit calls from failing with
+  `invalid_tool_input` because of a concatenated `{}{...}` payload.
+- Prevented Qoder from reporting that it has no file or shell access when
+  OpenCode provides those host tools.
+
+### Validation
+
+- Full tests: 155 passed, 0 failed, 2 skipped.
+- Stress tests: 13 passed, 0 failed, 1 skipped.
+- Typecheck and build passed.
+- npm audit: 0 vulnerabilities.
+- Authenticated E2E remains dependent on available Qoder credentials.
+
 ## [0.1.16] - 2026-09-19
 
 ### Added

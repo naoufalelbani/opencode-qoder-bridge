@@ -213,6 +213,31 @@ describe("result metadata shape", () => {
     });
   });
 
+  test("replaces eager empty tool input when Qoder streams the complete object", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["read"]) });
+    handleSdkMessage({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", id: "read-eager-empty", name: "Read", input: {} },
+      },
+    }, state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: '{"file_path":"/tmp/example.ts"}' },
+      },
+    }, state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 0 } }, state);
+
+    const toolCall = parts.find((part) => part.type === "tool-call");
+    assert.equal(toolCall?.input, '{"filePath":"/tmp/example.ts"}');
+    assert.equal(parts.find((part) => part.type === "error"), undefined);
+  });
+
   test("providerMetadata nests qoder fields exactly once", () => {
     const { parts, state } = makeState();
     handleSdkMessage(
