@@ -55,29 +55,47 @@ npm rebuild @qoder-ai/qoder-agent-sdk
 
 ## Trusted publishing
 
-After the package exists on npm:
+The repository publishes to npm automatically when a GitHub Release is
+published. `.github/workflows/publish.yml` checks out the release tag, verifies
+that the tag version matches `package.json`, runs `npm ci`, `npm run check`,
+`npm run test:stress`, validates the tarball, and publishes with npm provenance.
+
+One-time npm configuration is required after the package exists on npm:
 
 1. Open the package settings on npmjs.com.
 2. Add a GitHub Actions trusted publisher for:
    - Owner: `naoufalelbani`
    - Repository: `opencode-qoder-bridge`
-   - Workflow: `publish.yml`
-   - Allowed action: `npm publish`
+   - Workflow filename: `.github/workflows/publish.yml`
+   - Environment: leave blank unless the workflow is later changed to use one.
 3. Keep the repository public so npm can generate provenance.
-4. Consider configuring the npm package to disallow token-based publishing
-   after the trusted workflow succeeds.
+4. Do not add an `NPM_TOKEN`; the workflow uses GitHub OIDC trusted publishing.
+5. Optionally configure npm to disallow token-based publishing after the
+   trusted workflow succeeds.
+
+The workflow requires the `id-token: write` permission and npm CLI 11.5.1 or
+newer. A failed publish is safe to retry by publishing the same GitHub Release
+again only after confirming npm does not already contain that version.
 
 ## Subsequent releases
 
 Update `version` using semantic versioning, document the release in
 `CHANGELOG.md`, run the release gate, commit the change, and push a matching
-tag:
+tag. Then publish the GitHub Release; npm publication happens automatically:
 
 ```bash
-npm version patch
+npm version patch --no-git-tag-version
+# update CHANGELOG.md
+npm ci
+npm run check
+npm run test:stress
+git add package.json package-lock.json CHANGELOG.md dist src test
+git commit -m "release: vX.Y.Z"
+git tag vX.Y.Z
 git push origin main --follow-tags
+gh release create vX.Y.Z --target vX.Y.Z --generate-notes
 ```
 
-The tag triggers `.github/workflows/publish.yml`. Never reuse a version already
-published to npm.
+The release event triggers `.github/workflows/publish.yml`. Never reuse a
+version already published to npm.
 
