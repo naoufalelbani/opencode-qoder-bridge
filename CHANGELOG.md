@@ -4,7 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.11] - 2026-09-01
+## [0.1.13] - 2026-09-19
+
+### Changed
+
+- Centralized Qoder command execution in `command-actions.ts` so the OpenCode
+  plugin adapter no longer maintains duplicate implementations for usage,
+  models, sessions, session reset/fork, MCP status/auth, and Plan Mode.
+- Kept the bridge focused on Qoder-specific integration while leaving generic
+  OpenCode session, UI, tool, and orchestration behavior to OpenCode.
+
+### Fixed
+
+- Removed duplicated command formatting and lifecycle code that could cause the
+  tool and local TUI command surfaces to drift apart.
+- Reduced the compiled package size while preserving the existing Qoder command
+  and SDK behavior.
+
+### Validation
+
+- Standard tests: 148 passed, 0 failed, 2 skipped.
+- Stress tests: 13 passed, 0 failed, 1 skipped.
+- npm audit: 0 vulnerabilities.
+- Package contents: 97 files, approximately 513 KB unpacked.
+
+## [0.1.12] - 2026-09-19
 
 ### Added
 
