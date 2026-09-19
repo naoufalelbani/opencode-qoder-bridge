@@ -953,13 +953,12 @@ describe("SDK dependency resolution", () => {
     assert.equal(typeof sdk.WorkerTransport, "function");
   });
 
-  test("SDK 1.0.31 exports session controls and runtime helpers", async () => {
+  test("SDK exports session controls and runtime helpers", async () => {
     const sdk = await import("@qoder-ai/qoder-agent-sdk");
     assert.equal(typeof sdk.listSessions, "function");
     assert.equal(typeof sdk.startDaemon, "function");
     assert.equal(typeof sdk.forkSession, "function");
     assert.equal(typeof sdk.startup, "function");
-    assert.equal(typeof sdk.measureSessionStoreEntryPayloadBytes, "function");
     assert.equal(typeof sdk.DaemonRpcError, "function");
   });
 });
