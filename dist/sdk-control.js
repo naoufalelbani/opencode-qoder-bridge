@@ -28,6 +28,13 @@ function resolveCwd(value) {
 function childEnvironment(environment) {
     return environment ? { ...process.env, ...environment } : process.env;
 }
+function boundedMilliseconds(value, fallback, max) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "number" || !Number.isFinite(value))
+        return fallback;
+    return Math.min(max, Math.max(0, Math.floor(value)));
+}
 function controlOptions(bridgeOptions, cwd, abortController) {
     const environment = childEnvironment(bridgeOptions.env);
     const options = {
@@ -39,6 +46,12 @@ function controlOptions(bridgeOptions, cwd, abortController) {
         persistSession: false,
         includePartialMessages: false,
     };
+    const controlRequestTimeoutMs = boundedMilliseconds(bridgeOptions.controlRequestTimeoutMs, 60_000, 5 * 60_000);
+    if (controlRequestTimeoutMs !== undefined)
+        options.controlRequestTimeoutMs = controlRequestTimeoutMs;
+    const closeGraceMs = boundedMilliseconds(bridgeOptions.closeGraceMs, 2_000, MCP_CONTROL_TIMEOUT_MS);
+    if (closeGraceMs !== undefined)
+        options.closeGraceMs = closeGraceMs;
     const cli = findQoderCLI();
     if (cli)
         options.pathToQoderCLIExecutable = cli;
