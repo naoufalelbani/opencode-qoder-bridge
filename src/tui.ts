@@ -3,6 +3,7 @@ import { jsx, jsxs } from "@opentui/solid/jsx-runtime";
 import { createEffect, Show, createSignal } from "solid-js";
 import { getLiveUsage } from "./usage.js";
 import { debug, describeError } from "./logger.js";
+import { mergedEnvironment } from "./environment.js";
 import {
   closeAllPendingMcpAuth,
   executeQoderCommand,
@@ -14,6 +15,7 @@ import type { QoderBridgeOptions } from "./types.js";
 
 const REFRESH_MS = 30_000;
 const POST_TURN_REFRESH_MS = 5_000;
+const MIN_REFRESH_GAP_MS = 5_000;
 
 type QuotaView = {
   used?: number;
@@ -179,14 +181,9 @@ function commandContext(api: TuiApi, pendingMcpAuth: Map<string, PendingMcpAuth>
     if (Object.keys(bridgedMcp).length > 0) options.mcpServers = bridgedMcp;
   }
 
-  const environment: Record<string, string | undefined> = { ...process.env };
-  if (isRecord(options.env)) {
-    for (const [key, value] of Object.entries(options.env)) {
-      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && (typeof value === "string" || value === undefined)) {
-        environment[key] = value;
-      }
-    }
-  }
+  const environment = mergedEnvironment(isRecord(options.env)
+    ? options.env as Record<string, string | undefined>
+    : undefined);
   const modelOptions = {
     ...(stringOption(options.proxy) ? { proxy: stringOption(options.proxy) } : {}),
     ...(stringOption(options.vpcEndpoint) ? { vpcEndpoint: stringOption(options.vpcEndpoint) } : {}),
@@ -365,7 +362,7 @@ export const tui: TuiPlugin = async (api) => {
   let refreshing = false;
   let refreshedAt = 0;
   const refresh = async () => {
-    if (refreshing) return;
+    if (refreshing || Date.now() - refreshedAt < MIN_REFRESH_GAP_MS) return;
     refreshing = true;
     try {
       setQuota(formatQuota(await getLiveUsage(true)));

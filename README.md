@@ -168,7 +168,11 @@ Flag names may be written with or without the leading `--`.
 `config.mcp` servers are bridged into the SDK's `mcpServers` automatically.
 Chat turns have a 30-minute bridge timeout by default; set `options.timeoutMs`
 to a positive value to use a shorter or longer bounded timeout (up to 24 hours).
-Values in `options.env` override inherited process variables rather than
+Control operations such as MCP status and OAuth use the SDK's
+`controlRequestTimeoutMs` (default 60 seconds, bounded to 5 minutes), while
+runtime shutdown uses `closeGraceMs` (default 2 seconds). These options tune
+Qoder SDK lifecycle behavior only; OpenCode continues to own host session and
+UI lifecycle. Values in `options.env` override inherited process variables rather than
 replacing the complete child environment.
 
 ### Persistent sessions and permissions

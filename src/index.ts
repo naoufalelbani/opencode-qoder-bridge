@@ -5,6 +5,7 @@ import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { ensureTuiRegistered } from "./tui-register.js";
 import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
+import { mergedEnvironment } from "./environment.js";
 import {
   runQoderMcpAuth,
   runQoderMcpStatus,
@@ -34,13 +35,7 @@ function safeDisplay(value: unknown, fallback: string, maxLength = 512): string 
 }
 
 function discoveryEnvironment(value: unknown): Record<string, string | undefined> {
-  const environment: Record<string, string | undefined> = { ...process.env };
-  if (!isRecord(value)) return environment;
-  for (const [key, item] of Object.entries(value)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    if (typeof item === "string" || item === undefined) environment[key] = item;
-  }
-  return environment;
+  return isRecord(value) ? mergedEnvironment(value as Record<string, string | undefined>) : mergedEnvironment();
 }
 
 function discoveryOptions(options: Record<string, unknown>): ModelDiscoveryOptions {

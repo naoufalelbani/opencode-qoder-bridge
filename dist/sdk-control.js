@@ -7,6 +7,7 @@ import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { QoderAuthError } from "./errors.js";
 import { withTimeout } from "./async-utils.js";
 import { redactSensitiveText } from "./logger.js";
+import { mergedEnvironment } from "./environment.js";
 export const MCP_CONTROL_TIMEOUT_MS = 30_000;
 const MCP_INITIALIZE_TIMEOUT_MS = 60_000;
 function resolveCwd(value) {
@@ -26,7 +27,7 @@ function resolveCwd(value) {
     }
 }
 function childEnvironment(environment) {
-    return environment ? { ...process.env, ...environment } : process.env;
+    return mergedEnvironment(environment);
 }
 function boundedMilliseconds(value, fallback, max) {
     if (value === undefined)

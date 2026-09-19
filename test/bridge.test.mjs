@@ -7,6 +7,20 @@ const DIST_URL = new URL("../dist/", import.meta.url);
 const DIST = DIST_URL.href;
 const DIST_PATH = fileURLToPath(DIST_URL);
 
+describe("environment normalization", () => {
+  test("merges valid overrides and ignores malformed values", async () => {
+    const { mergedEnvironment } = await import(DIST + "environment.js");
+    const environment = mergedEnvironment({
+      QODER_TEST_OVERRIDE: "ok",
+      "BAD-KEY": "ignored",
+      QODER_BAD_VALUE: 42,
+    });
+    assert.equal(environment.QODER_TEST_OVERRIDE, "ok");
+    assert.equal(environment["BAD-KEY"], undefined);
+    assert.equal(environment.QODER_BAD_VALUE, undefined);
+  });
+});
+
 describe("provider", () => {
   test("createQoderProvider returns languageModel/textEmbeddingModel/imageModel", async () => {
     const { createQoderProvider } = await import(DIST + "provider.js");

@@ -4,6 +4,7 @@ import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { ensureTuiRegistered } from "./tui-register.js";
 import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
+import { mergedEnvironment } from "./environment.js";
 import { runQoderMcpAuth, runQoderMcpStatus, runQoderModels, runQoderPlanMode, runQoderSessionFork, runQoderSessionReset, runQoderSessions, runQoderUsage, } from "./command-actions.js";
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
@@ -19,16 +20,7 @@ function safeDisplay(value, fallback, maxLength = 512) {
     return clean || fallback;
 }
 function discoveryEnvironment(value) {
-    const environment = { ...process.env };
-    if (!isRecord(value))
-        return environment;
-    for (const [key, item] of Object.entries(value)) {
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
-            continue;
-        if (typeof item === "string" || item === undefined)
-            environment[key] = item;
-    }
-    return environment;
+    return isRecord(value) ? mergedEnvironment(value) : mergedEnvironment();
 }
 function discoveryOptions(options) {
     const result = { timeoutMs: MODEL_STARTUP_DISCOVERY_TIMEOUT_MS };

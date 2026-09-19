@@ -9,6 +9,7 @@ import { QoderAuthError } from "./errors.js";
 import type { QoderBridgeOptions } from "./types.js";
 import { withTimeout } from "./async-utils.js";
 import { redactSensitiveText } from "./logger.js";
+import { mergedEnvironment } from "./environment.js";
 
 export const MCP_CONTROL_TIMEOUT_MS = 30_000;
 const MCP_INITIALIZE_TIMEOUT_MS = 60_000;
@@ -29,7 +30,7 @@ function resolveCwd(value: string | undefined): string {
 }
 
 function childEnvironment(environment: Record<string, string | undefined> | undefined): Record<string, string | undefined> {
-  return environment ? { ...process.env, ...environment } : process.env;
+  return mergedEnvironment(environment);
 }
 
 function boundedMilliseconds(value: unknown, fallback: number, max: number): number | undefined {

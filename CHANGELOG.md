@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.14] - 2026-09-19
+
+### Added
+
+- Documented `controlRequestTimeoutMs` and `closeGraceMs` lifecycle options.
+- Added regression coverage for shared child-environment normalization.
+
+### Changed
+
+- Updated `@opencode-ai/plugin` to `1.18.31`.
+- Updated the SDK script-approval entry to `@qoder-ai/qoder-agent-sdk@1.0.44`.
+- Centralized validated environment merging across model discovery, chat,
+  control, and TUI paths.
+
+### Fixed
+
+- Prevented malformed environment keys and non-string values from being passed
+  to Qoder child runtimes.
+- Avoided redundant quota requests shortly after a previous TUI refresh.
+
+### Validation
+
+- Standard, stress, E2E, typecheck, audit, and package checks passed.
+- Authenticated E2E remains skipped when Qoder credentials are unavailable.
+
 ## [0.1.13] - 2026-09-19
 
 ### Changed

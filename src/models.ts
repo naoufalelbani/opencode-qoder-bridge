@@ -9,6 +9,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolveStateDir } from "./state-dir.js";
 import { debug, describeError } from "./logger.js";
+import { mergedEnvironment } from "./environment.js";
 import { closeAsyncIterator, withTimeout } from "./async-utils.js";
 
 const CONTEXT = 200_000;
@@ -251,7 +252,7 @@ function cloneModels(models: DynamicModelEntry[] | null): DynamicModelEntry[] | 
 }
 
 function effectiveEnvironment(environment: Record<string, string | undefined>): Record<string, string | undefined> {
-  return { ...process.env, ...environment };
+  return mergedEnvironment(environment);
 }
 
 function safeOption(value: unknown): string | undefined {

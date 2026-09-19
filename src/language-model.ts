@@ -24,6 +24,7 @@ import { deleteQoderSession, ensureQoderSession, getQoderSessionForCwd, getQoder
 import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { QoderAuthError, QoderSdkResultError } from "./errors.js";
 import { debug, describeError, redactSensitiveText } from "./logger.js";
+import { mergedEnvironment } from "./environment.js";
 import { withTimeout } from "./async-utils.js";
 
 type StreamController = ReadableStreamDefaultController<LanguageModelV3StreamPart>;
@@ -268,14 +269,7 @@ function resolveCwd(value: unknown): string {
 }
 
 function qoderEnvironment(environment: Record<string, string | undefined> | undefined): Record<string, string | undefined> {
-  if (!environment) return process.env;
-  const merged = { ...process.env, ...environment };
-  // Windows exposes the inherited variable as `Path` on some Node builds,
-  // while SDK callers and child tools commonly address the POSIX spelling.
-  if (process.platform === "win32" && merged.PATH === undefined && merged.Path !== undefined) {
-    merged.PATH = merged.Path;
-  }
-  return merged;
+  return mergedEnvironment(environment);
 }
 
 const sessionTails = new Map<string, Promise<void>>();
