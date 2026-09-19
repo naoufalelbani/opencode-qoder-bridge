@@ -203,6 +203,12 @@ function requestTimeoutMs(value: unknown): number {
   return Math.min(MAX_REQUEST_TIMEOUT_MS, Math.max(1, Math.floor(value)));
 }
 
+function boundedMilliseconds(value: unknown, fallback: number, max: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(0, Math.floor(value)));
+}
+
 function abortError(): Error {
   const error = new Error("Qoder request aborted");
   error.name = "AbortError";
@@ -786,6 +792,11 @@ export class QoderLanguageModel implements LanguageModelV3 {
       cwd,
       abortController,
     };
+
+    const controlRequestTimeoutMs = boundedMilliseconds(this.bridgeOptions.controlRequestTimeoutMs, 60_000, 5 * 60_000);
+    if (controlRequestTimeoutMs !== undefined) opts.controlRequestTimeoutMs = controlRequestTimeoutMs;
+    const closeGraceMs = boundedMilliseconds(this.bridgeOptions.closeGraceMs, 2_000, CLEANUP_GRACE_MS);
+    if (closeGraceMs !== undefined) opts.closeGraceMs = closeGraceMs;
 
     if (onAuthExpired) opts.onAuthExpired = onAuthExpired;
 

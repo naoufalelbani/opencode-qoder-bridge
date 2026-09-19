@@ -53,6 +53,10 @@ export interface QoderBridgeOptions {
   allowDangerouslySkipPermissions?: boolean;
   /** Maximum duration of a chat turn in milliseconds; defaults to 30 minutes. */
   timeoutMs?: number;
+  /** SDK control-request timeout in milliseconds; defaults to the SDK value. */
+  controlRequestTimeoutMs?: number;
+  /** SDK transport close grace period in milliseconds; defaults to the SDK value. */
+  closeGraceMs?: number;
   /** Optional SDK tool allowlist. */
   allowedTools?: string[];
   /** Optional SDK tool denylist. */
