@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.15] - 2026-09-19
+
+### Added
+
+- Added regression coverage for plain-text Bash input in normal and streamed
+  Qoder tool messages.
+- Added explicit Node type inclusion in the TypeScript compiler configuration.
+
+### Changed
+
+- Updated `@ai-sdk/provider` to `4.0.17`.
+- Updated `@types/node` to `26.6.2`.
+- Updated `typescript` to `7.0.2`.
+- Updated `zod` to `4.6.5`.
+- Kept `@opentui/solid` at `0.5.4` because its latest release requires
+  Node `>=26.4.0` through `@opentui/core`, while the bridge supports Node 22.
+
+### Fixed
+
+- Accepts unwrapped plain-text Bash commands from Qoder and converts them to
+  OpenCode's `{ command }` input shape.
+- Handles JSON-string Bash input emitted by Qoder's streaming protocol.
+- Trims whitespace around Qoder tool names before normalization, preventing
+  host tools such as `" bash "` from being misclassified as provider-owned.
+
+### Validation
+
+- Full tests: 151 passed, 0 failed, 2 skipped.
+- Stress tests: 13 passed, 0 failed, 1 skipped.
+- Typecheck and build passed.
+- npm audit: 0 vulnerabilities.
+- Package dry run: 101 files, approximately 517 KB unpacked.
+- Authenticated Qoder E2E remains skipped without credentials.
+
 ## [0.1.14] - 2026-09-19
 
 ### Added

@@ -53,7 +53,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export function normalizeToolName(name: string): string {
-  const lower = name.toLowerCase();
+  const lower = name.trim().toLowerCase();
   const mapped = Object.hasOwn(NAME_MAP, lower) ? NAME_MAP[lower] : undefined;
   if (mapped) return mapped;
 

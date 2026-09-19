@@ -48,7 +48,7 @@ function isRecord(v) {
     return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 export function normalizeToolName(name) {
-    const lower = name.toLowerCase();
+    const lower = name.trim().toLowerCase();
     const mapped = Object.hasOwn(NAME_MAP, lower) ? NAME_MAP[lower] : undefined;
     if (mapped)
         return mapped;

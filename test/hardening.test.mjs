@@ -137,6 +137,44 @@ function makeState(overrides = {}) {
 }
 
 describe("result metadata shape", () => {
+  test("wraps a plain Qoder Bash command as valid OpenCode tool JSON", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["bash"]) });
+    handleSdkMessage(
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "bash-plain", name: "bash", input: "printf 'hello'" }] } },
+      state,
+    );
+    const toolCall = parts.find((part) => part.type === "tool-call");
+    assert.deepEqual(toolCall, {
+      type: "tool-call",
+      toolCallId: "bash-plain",
+      toolName: "bash",
+      input: JSON.stringify({ command: "printf 'hello'" }),
+    });
+  });
+
+  test("wraps a streamed plain Qoder Bash command as valid OpenCode tool JSON", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["bash"]) });
+    handleSdkMessage(
+      {
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: "bash-stream", name: "bash", input: "printf 'hello'" },
+        },
+      },
+      state,
+    );
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 0 } }, state);
+    const toolCall = parts.find((part) => part.type === "tool-call");
+    assert.deepEqual(toolCall, {
+      type: "tool-call",
+      toolCallId: "bash-stream",
+      toolName: "bash",
+      input: JSON.stringify({ command: "printf 'hello'" }),
+    });
+  });
+
   test("providerMetadata nests qoder fields exactly once", () => {
     const { parts, state } = makeState();
     handleSdkMessage(

@@ -1087,13 +1087,22 @@ function normalizedToolInput(toolName, raw) {
     const serialized = typeof raw === "string" ? raw : safeJsonStringify(raw);
     if (serialized === undefined || serialized.length > MAX_TOOL_INPUT_CHARS)
         return null;
+    const trimmed = serialized.trim();
     try {
-        const parsed = JSON.parse(serialized.trim() || "{}");
+        const parsed = JSON.parse(trimmed || "{}");
+        if (toolName === "bash" && typeof parsed === "string" && parsed.trim()) {
+            return JSON.stringify({ command: parsed });
+        }
         if (!isRecord(parsed))
             return null;
         return normalizeToolInputString(toolName, serialized);
     }
     catch {
+        // Qoder may emit a plain command string for Bash instead of the
+        // OpenCode JSON object. Accept only that unambiguous representation.
+        if (toolName === "bash" && trimmed && !/^[\\[{]/.test(trimmed)) {
+            return JSON.stringify({ command: trimmed });
+        }
         return null;
     }
 }

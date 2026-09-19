@@ -242,9 +242,10 @@ describe("tool-normalizer", () => {
     normalizeToolInputString = mod.normalizeToolInputString;
   });
 
-  test("lowercases tool names", () => {
+  test("lowercases and trims tool names", () => {
     assert.equal(normalizeToolName("Read"), "read");
     assert.equal(normalizeToolName("Bash"), "bash");
+    assert.equal(normalizeToolName("  bash  "), "bash");
     assert.equal(normalizeToolName("Grep"), "grep");
   });
 
