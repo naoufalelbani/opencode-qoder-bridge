@@ -45,11 +45,11 @@ PAT authentication uses the SDK's worker runtime when available and does not
 require a local `qoder login`. CLI authentication remains supported.
 
 With npm 12, dependency install scripts may be blocked by the consuming
-project's script-approval policy. To download SDK `1.0.31`'s bundled Worker
-runtime, approve and rebuild it from that project:
+project's script-approval policy. To download the SDK's bundled Worker
+runtime, approve and rebuild the installed SDK version from that project:
 
 ```bash
-npm install-scripts approve @qoder-ai/qoder-agent-sdk@1.0.31
+npm install-scripts approve @qoder-ai/qoder-agent-sdk
 npm rebuild @qoder-ai/qoder-agent-sdk
 ```
 
