@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.16] - 2026-09-19
+
+### Added
+
+- Added regression coverage for truncated Bash JSON, undefined Bash input,
+  Bash aliases, and strict non-Bash input handling.
+
+### Changed
+
+- Bash tool-input normalization now tolerates Qoder's bare-string and
+  recoverable malformed JSON representations.
+- Invalid tool payloads now emit bounded debug diagnostics when
+  `QODER_BRIDGE_DEBUG=1` is enabled.
+
+### Fixed
+
+- Prevented recoverable Qoder Bash payloads from terminating the stream with
+  `invalid_tool_input`.
+- Preserved strict validation for malformed inputs belonging to non-Bash tools.
+
+### Validation
+
+- Full tests: 154 passed, 0 failed, 2 skipped.
+- Stress tests: 13 passed, 0 failed, 1 skipped.
+- Typecheck and build passed.
+- npm audit: 0 vulnerabilities.
+- Authenticated Qoder E2E remains dependent on available Qoder credentials.
+
 ## [0.1.15] - 2026-09-19
 
 ### Added

@@ -152,6 +152,44 @@ describe("result metadata shape", () => {
     });
   });
 
+  test("salvages truncated Bash JSON with an extractable command", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["bash"]) });
+    handleSdkMessage(
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "bash-truncated", name: "bash", input: '{"command":"ls -la"' }] } },
+      state,
+    );
+    const toolCall = parts.find((part) => part.type === "tool-call");
+    assert.equal(toolCall?.input, JSON.stringify({ command: "ls -la" }));
+  });
+
+  test("uses an empty object for an undefined Bash input", () => {
+    const { parts, state } = makeState({ functionToolNames: new Set(["bash"]) });
+    handleSdkMessage(
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "bash-empty", name: "bash" }] } },
+      state,
+    );
+    const toolCall = parts.find((part) => part.type === "tool-call");
+    assert.equal(toolCall?.input, "{}");
+  });
+
+  test("normalizes valid Bash aliases while preserving strict non-Bash inputs", () => {
+    const valid = makeState({ functionToolNames: new Set(["bash"]) });
+    handleSdkMessage(
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "bash-cmd", name: "bash", input: '{"cmd":"ls"}' }] } },
+      valid.state,
+    );
+    assert.equal(valid.parts.find((part) => part.type === "tool-call")?.input, JSON.stringify({ command: "ls" }));
+
+    const strict = makeState({ functionToolNames: new Set(["read"]) });
+    handleSdkMessage(
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "read-bad", name: "read", input: "not-json" }] } },
+      strict.state,
+    );
+    const error = strict.parts.find((part) => part.type === "error");
+    assert.equal(error?.error?.code, "QODER_SDK_RESULT_ERROR");
+    assert.match(error?.error?.message ?? "", /invalid JSON for tool read/);
+  });
+
   test("wraps a streamed plain Qoder Bash command as valid OpenCode tool JSON", () => {
     const { parts, state } = makeState({ functionToolNames: new Set(["bash"]) });
     handleSdkMessage(

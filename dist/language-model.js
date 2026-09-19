@@ -1082,29 +1082,50 @@ function handleAssistant(m, state) {
     }
 }
 function normalizedToolInput(toolName, raw) {
-    if (raw === undefined)
+    if (raw === undefined) {
+        if (toolName === "bash")
+            return "{}";
+        debugInvalidToolInput(toolName, raw);
         return null;
+    }
     const serialized = typeof raw === "string" ? raw : safeJsonStringify(raw);
-    if (serialized === undefined || serialized.length > MAX_TOOL_INPUT_CHARS)
+    if (serialized === undefined || serialized.length > MAX_TOOL_INPUT_CHARS) {
+        debugInvalidToolInput(toolName, serialized ?? raw);
         return null;
+    }
     const trimmed = serialized.trim();
     try {
         const parsed = JSON.parse(trimmed || "{}");
-        if (toolName === "bash" && typeof parsed === "string" && parsed.trim()) {
-            return JSON.stringify({ command: parsed });
+        if (toolName === "bash" && typeof parsed === "string") {
+            return normalizeToolInputString(toolName, JSON.stringify({ command: parsed }));
         }
-        if (!isRecord(parsed))
+        if (!isRecord(parsed)) {
+            debugInvalidToolInput(toolName, serialized);
             return null;
+        }
         return normalizeToolInputString(toolName, serialized);
     }
     catch {
-        // Qoder may emit a plain command string for Bash instead of the
-        // OpenCode JSON object. Accept only that unambiguous representation.
-        if (toolName === "bash" && trimmed && !/^[\\[{]/.test(trimmed)) {
-            return JSON.stringify({ command: trimmed });
+        if (toolName === "bash") {
+            const commandMatch = /"command"\s*:\s*"((?:[^"\\]|\\.)*)"/s.exec(trimmed);
+            if (commandMatch) {
+                try {
+                    return normalizeToolInputString(toolName, JSON.stringify({ command: JSON.parse(`"${commandMatch[1]}"`) }));
+                }
+                catch {
+                    // Fall through to the plain-text compatibility path below.
+                }
+            }
+            if (trimmed)
+                return JSON.stringify({ command: trimmed });
         }
+        debugInvalidToolInput(toolName, serialized);
         return null;
     }
+}
+function debugInvalidToolInput(toolName, raw) {
+    const text = typeof raw === "string" ? raw : safeJsonStringify(raw) ?? String(raw);
+    debug(`Invalid tool input for ${toolName}: ${text.slice(0, 500)}`);
 }
 function appendOutput(state, text) {
     const current = Number.isFinite(state.outputChars) ? state.outputChars : 0;
