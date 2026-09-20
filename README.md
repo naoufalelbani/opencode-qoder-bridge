@@ -116,6 +116,18 @@ npm run build
 Then use the `file:///.../dist/index.js` plugin entry shown above. This avoids
 OpenCode loading an older cached copy of the package.
 
+### Authenticated E2E tests
+
+The authenticated E2E test is opt-in because it consumes Qoder quota:
+
+```bash
+QODER_E2E=1 npm run test:e2e
+```
+
+The GitHub Actions `Authenticated Qoder E2E` workflow can be started manually
+after adding a `QODER_PERSONAL_ACCESS_TOKEN` repository secret. Normal pushes
+and pull requests never run this quota-consuming job.
+
 ## Usage
 
 ```bash

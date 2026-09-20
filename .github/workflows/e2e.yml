@@ -1,0 +1,36 @@
+name: Authenticated Qoder E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Qoder model to exercise
+        required: false
+        default: auto
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QODER_E2E: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.22.2"
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:stress
+      - name: Run authenticated Qoder E2E
+        env:
+          QODER_PERSONAL_ACCESS_TOKEN: ${{ secrets.QODER_PERSONAL_ACCESS_TOKEN }}
+          QODER_E2E_MODEL: ${{ inputs.model }}
+        run: npm run test:e2e
+      - name: Verify no test artifacts leaked
+        run: git diff --exit-code -- . ':!package-lock.json'
