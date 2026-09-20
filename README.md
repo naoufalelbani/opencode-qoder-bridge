@@ -197,8 +197,11 @@ Bridge opencode MCP servers into the SDK by passing provider options:
 Flag names may be written with or without the leading `--`.
 
 `config.mcp` servers are bridged into the SDK's `mcpServers` automatically.
-Chat turns have a 30-minute bridge timeout by default; set `options.timeoutMs`
-to a positive value to use a shorter or longer bounded timeout (up to 24 hours).
+Chat turns have a 30-minute bridge inactivity timeout by default; the watchdog
+resets whenever Qoder emits a stream or tool message, so long active coding
+turns are not killed solely because they cross 30 minutes. Set
+`options.timeoutMs` to a positive value to use a shorter or longer bounded
+inactivity timeout (up to 24 hours).
 Control operations such as MCP status and OAuth use the SDK's
 `controlRequestTimeoutMs` (default 60 seconds, bounded to 5 minutes), while
 runtime shutdown uses `closeGraceMs` (default 2 seconds). These options tune

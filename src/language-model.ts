@@ -481,6 +481,15 @@ export class QoderLanguageModel implements LanguageModelV3 {
     let cleanupPromise: Promise<void> | undefined;
     const timeoutMs = requestTimeoutMs(this.bridgeOptions.timeoutMs);
     const timeoutError = () => new QoderSdkResultError("timeout", `Qoder request exceeded ${timeoutMs}ms`);
+    const armInactivityTimeout = () => {
+      if (requestTimer) clearTimeout(requestTimer);
+      requestTimer = setTimeout(() => {
+        timedOut = true;
+        debug(`Qoder request inactive for ${timeoutMs}ms`);
+        void cleanup();
+      }, timeoutMs);
+      if (typeof requestTimer.unref === "function") requestTimer.unref();
+    };
     const cleanup = (): Promise<void> => {
       if (cleanupPromise) return cleanupPromise;
       if (requestTimer) clearTimeout(requestTimer);
@@ -556,12 +565,10 @@ export class QoderLanguageModel implements LanguageModelV3 {
             safeClose(controller);
             return;
           }
-          requestTimer = setTimeout(() => {
-            timedOut = true;
-            debug(`Qoder request timed out after ${timeoutMs}ms`);
-            void cleanup();
-          }, timeoutMs);
-          if (typeof requestTimer.unref === "function") requestTimer.unref();
+          // This is an inactivity watchdog, not a hard wall-clock limit. A
+          // complex turn may legitimately run longer than 30 minutes while
+          // Qoder continues to emit tool/stream messages.
+          armInactivityTimeout();
 
           const lockKey = sessionKey ? `${cwd}\u0000${sessionKey}` : undefined;
           const leaseKey = [this.bridgeOptions.sessionId, sessionKey]
@@ -613,6 +620,7 @@ export class QoderLanguageModel implements LanguageModelV3 {
                 const next = await nextWithAbort(iterator, abortController.signal);
                 if (!next || next.done) break;
                 if (externallyAborted || timedOut) break;
+                armInactivityTimeout();
                 handleSdkMessage(next.value as Record<string, unknown>, state);
                 if (state.authExpired || state.finished) break;
               }
