@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.18] - 2026-09-20
+
+### Added
+
+- Added explicit quota exhaustion reporting with an actionable Qoder upgrade link.
+- Added README badges and an architecture diagram for installation and project
+  orientation.
+- Added regression coverage for quota errors and replayed stream frames.
+
+### Changed
+
+- Updated the Qoder Agent SDK dependency to `1.0.45`.
+- Reclassified Qoder credit-limit failures as `quota_exceeded` instead of the
+  generic `error_during_execution`.
+- Made replayed and late stream frames idempotent after block closure.
+
+### Fixed
+
+- Prevented quota data with `total: 0` from being rendered as misleading
+  `0/0` or unavailable account usage.
+- Preserved structured Qoder errors when a result arrives before all block-stop
+  frames.
+- Kept the SDK install-script allowlist aligned with the dependency version.
+
+### Validation
+
+- Full tests: 162 passed, 0 failed, 2 skipped.
+- Stress tests: 13 passed, 0 failed, 1 skipped.
+- Typecheck, package dry run, and npm audit passed.
+- Live Qoder generation reached the SDK; account quota exhaustion was reported
+  explicitly by Qoder.
+
 ## [0.1.17] - 2026-09-20
 
 ### Added
