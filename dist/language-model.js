@@ -167,6 +167,9 @@ function safePublicError(error) {
     if (error instanceof QoderAuthError || error instanceof QoderSdkResultError)
         return error;
     const detail = describeError(error) || "Qoder request failed";
+    if (isInvalidSessionError("", detail)) {
+        return new QoderSdkResultError("invalid_session", detail, { cause: error });
+    }
     if (/network|econn(reset|refused)|enotfound|etimedout|timeout|socket|fetch failed|5\d\d/i.test(detail)) {
         return new QoderSdkResultError("network_error", detail, { cause: error });
     }

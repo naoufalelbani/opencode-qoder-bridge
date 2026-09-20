@@ -794,6 +794,19 @@ describe("injected SDK transport", () => {
       return true;
     });
   });
+
+  test("classifies an invalid-session transport failure consistently", async () => {
+    const lm = new QoderLanguageModel("auto", {
+      env: { QODER_PERSONAL_ACCESS_TOKEN: "pt-injected-test" },
+      sessionPersistence: true,
+      sessionKey: "invalid-session-test",
+      query: () => { throw new Error("Qoder session is invalid or not found"); },
+    });
+    await assert.rejects(() => lm.doGenerate({ prompt: [] }), (error) => {
+      assert.match(error.message, /invalid_session/);
+      return true;
+    });
+  });
 });
 
 describe("history trimming", () => {
