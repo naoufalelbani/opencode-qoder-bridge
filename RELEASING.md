@@ -99,3 +99,15 @@ gh release create vX.Y.Z --target vX.Y.Z --generate-notes
 The release event triggers `.github/workflows/publish.yml`. Never reuse a
 version already published to npm.
 
+## Recovery from a bad release
+
+Never delete or overwrite a published version. If a release is defective:
+
+1. Publish a corrected patch version and mark the defective GitHub release as
+   deprecated in its notes.
+2. If the package must be blocked, run `npm deprecate
+   opencode-qoder-bridge@X.Y.Z "Use X.Y.Z+1: <short reason>"` with an
+   authenticated npm account.
+3. Update the README and changelog with the replacement version.
+4. Re-run the complete release workflow and verify the replacement version on
+   npm before announcing it.
