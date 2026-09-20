@@ -16,6 +16,8 @@ import { withTimeout } from "./async-utils.js";
 const UNSAFE_METADATA_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const DEFAULT_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_MAX_DURATION_MS = 2 * 60 * 60 * 1000;
+const MAX_MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const CLEANUP_GRACE_MS = 5_000;
 const BACKGROUND_FLUSH_TIMEOUT_MS = 10_000;
 const MAX_SEEN_MESSAGE_IDS = 100_000;
@@ -143,6 +145,11 @@ function requestTimeoutMs(value) {
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
         return DEFAULT_REQUEST_TIMEOUT_MS;
     return Math.min(MAX_REQUEST_TIMEOUT_MS, Math.max(1, Math.floor(value)));
+}
+function maxDurationMs(value) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+        return DEFAULT_MAX_DURATION_MS;
+    return Math.min(MAX_MAX_DURATION_MS, Math.max(1, Math.floor(value)));
 }
 function boundedMilliseconds(value, fallback, max) {
     if (value === undefined)
@@ -428,13 +435,20 @@ export class QoderLanguageModel {
         let qoderQuery = null;
         let externallyAborted = false;
         let timedOut = false;
+        let hardTimedOut = false;
         let requestTimer;
+        let hardTimer;
         let cleanupPromise;
         const timeoutMs = requestTimeoutMs(this.bridgeOptions.timeoutMs);
-        const timeoutError = () => new QoderSdkResultError("timeout", `Qoder request exceeded ${timeoutMs}ms`);
+        const maxDuration = maxDurationMs(this.bridgeOptions.maxDurationMs);
+        const timeoutError = () => new QoderSdkResultError("timeout", hardTimedOut
+            ? `Qoder request exceeded its maximum duration of ${maxDuration}ms`
+            : `Qoder request was inactive for ${timeoutMs}ms`);
         const armInactivityTimeout = () => {
             if (requestTimer)
                 clearTimeout(requestTimer);
+            if (hardTimer)
+                clearTimeout(hardTimer);
             requestTimer = setTimeout(() => {
                 timedOut = true;
                 debug(`Qoder request inactive for ${timeoutMs}ms`);
@@ -532,6 +546,14 @@ export class QoderLanguageModel {
                     // This is an inactivity watchdog, not a hard wall-clock limit. A
                     // complex turn may legitimately run longer than 30 minutes while
                     // Qoder continues to emit tool/stream messages.
+                    hardTimer = setTimeout(() => {
+                        hardTimedOut = true;
+                        timedOut = true;
+                        debug(`Qoder request exceeded maximum duration of ${maxDuration}ms`);
+                        void cleanup();
+                    }, maxDuration);
+                    if (typeof hardTimer.unref === "function")
+                        hardTimer.unref();
                     armInactivityTimeout();
                     const lockKey = sessionKey ? `${cwd}\u0000${sessionKey}` : undefined;
                     const leaseKey = [this.bridgeOptions.sessionId, sessionKey]

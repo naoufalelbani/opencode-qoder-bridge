@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Added an absolute Qoder turn duration limit in addition to the inactivity
+  watchdog, preventing a continuously noisy SDK stream from running forever.
+- Documented the bridge-only timeout boundary and clarified that OpenCode owns
+  retries, cancellation UX, and host session orchestration.
+
 ## [0.1.18] - 2026-09-20
 
 ### Added

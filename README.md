@@ -202,6 +202,11 @@ resets whenever Qoder emits a stream or tool message, so long active coding
 turns are not killed solely because they cross 30 minutes. Set
 `options.timeoutMs` to a positive value to use a shorter or longer bounded
 inactivity timeout (up to 24 hours).
+The bridge also enforces a two-hour absolute wall-clock limit by default so a
+noisy or non-terminating SDK stream cannot run forever. Set
+`options.maxDurationMs` to change it (up to seven days). These are transport
+safety limits; OpenCode remains responsible for retries, cancellation UX, and
+host session orchestration.
 Control operations such as MCP status and OAuth use the SDK's
 `controlRequestTimeoutMs` (default 60 seconds, bounded to 5 minutes), while
 runtime shutdown uses `closeGraceMs` (default 2 seconds). These options tune
