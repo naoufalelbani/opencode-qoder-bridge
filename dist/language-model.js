@@ -24,6 +24,7 @@ const MAX_OUTPUT_CHARS = 8_000_000;
 const MAX_METADATA_NODES = 2_000;
 const MAX_METADATA_STRING = 4_096;
 const MAX_STOP_REASON_LENGTH = 256;
+const QODER_UPGRADE_URL = "https://qoder.com/pricing?client=qoder";
 async function flushSdkBackgroundWork(activeQuery, bridgeOptions) {
     const operations = [];
     if (bridgeOptions.memory && Object.keys(bridgeOptions.memory).length > 0) {
@@ -491,6 +492,7 @@ export class QoderLanguageModel {
                     activeText: new Set(),
                     activeReasoning: new Set(),
                     toolBlocks: new Map(),
+                    closedBlockIndexes: new Set(),
                     openBlocks: [],
                     sawStreamText: false,
                     sawStreamTool: false,
@@ -823,6 +825,12 @@ function handleStreamEvent(ev, state) {
         return;
     }
     if (evType === "content_block_start" && isRecord(ev.content_block)) {
+        // A replay can arrive after the original stop frame. Do not reopen a
+        // terminal block: doing so would duplicate text/reasoning or potentially
+        // execute the same tool call a second time.
+        if (state.closedBlockIndexes.has(idx))
+            return;
+        state.closedBlockIndexes.delete(idx);
         if (state.toolBlocks.has(idx)) {
             const existing = state.toolBlocks.get(idx);
             if (existing && ev.content_block.id === existing.id)
@@ -830,12 +838,20 @@ function handleStreamEvent(ev, state) {
             failStream(state, "malformed_stream", "Qoder started a different tool block at an open index");
             return;
         }
+        const blockType = typeof ev.content_block.type === "string" ? ev.content_block.type : "";
+        // Qoder can replay a text/thinking start frame while a streamed block is
+        // still open (especially after a resumed turn). These blocks have no
+        // stable provider ID, so treat an identical start at the same index as an
+        // idempotent replay. A conflicting type remains malformed.
         if (state.activeReasoning.has(idx) || state.activeText.has(idx)) {
-            failStream(state, "malformed_stream", "Qoder started a content block that was already open");
+            const duplicate = (blockType === "thinking" && state.activeReasoning.has(idx))
+                || (blockType === "text" && state.activeText.has(idx));
+            if (duplicate)
+                return;
+            failStream(state, "malformed_stream", "Qoder started a different content block at an open index");
             return;
         }
         const block = ev.content_block;
-        const blockType = typeof block.type === "string" ? block.type : "";
         if (blockType === "tool_use" && typeof block.id === "string" && block.id.trim() && typeof block.name === "string" && block.name.trim()) {
             const seenToolCallIds = state.seenToolCallIds ??= new Set();
             if (!rememberId(seenToolCallIds, block.id, MAX_SEEN_MESSAGE_IDS) || state.toolBlocks.has(idx))
@@ -874,6 +890,12 @@ function handleStreamEvent(ev, state) {
         return;
     }
     if (evType === "content_block_delta" && isRecord(ev.delta)) {
+        // Late replayed deltas for a closed block are idempotent. There is no
+        // stable provider sequence number on all SDK versions, so reopening the
+        // block would be less safe than ignoring a delta that arrived after its
+        // terminal frame.
+        if (state.closedBlockIndexes.has(idx))
+            return;
         const delta = ev.delta;
         const deltaType = delta.type;
         if (deltaType === "thinking_delta" && typeof delta.thinking === "string") {
@@ -958,16 +980,23 @@ function handleStreamEvent(ev, state) {
             }
             state.toolBlocks.delete(idx);
             untrackOpenBlock(state, idx);
+            state.closedBlockIndexes.add(idx);
         }
         else if (state.activeReasoning.has(idx)) {
             safeEnqueue(controller, { type: "reasoning-end", id: String(idx) });
             state.activeReasoning.delete(idx);
             untrackOpenBlock(state, idx);
+            state.closedBlockIndexes.add(idx);
         }
         else if (state.activeText.has(idx)) {
             safeEnqueue(controller, { type: "text-end", id: String(idx) });
             state.activeText.delete(idx);
             untrackOpenBlock(state, idx);
+            state.closedBlockIndexes.add(idx);
+        }
+        else if (state.closedBlockIndexes.has(idx)) {
+            // Replayed stop frames are harmless once the block was already closed.
+            return;
         }
         else {
             failStream(state, "malformed_stream", "Qoder stopped a content block that was not started");
@@ -1109,7 +1138,13 @@ function handleResult(m, state) {
     if (Object.hasOwn(m, "stop_reason")) {
         state.lastStopReason = safeStopReason(m.stop_reason);
     }
-    if (state.activeReasoning.size > 0 || state.activeText.size > 0 || state.toolBlocks.size > 0) {
+    // Preserve a structured Qoder failure even if the transport sends its
+    // result before replaying all block-stop frames. Only successful results
+    // should be classified as an incomplete stream in that situation; masking
+    // an execution/auth/session error makes recovery and retry decisions much
+    // less reliable for the host.
+    const resultIsError = m.is_error === true || m.subtype !== "success";
+    if (!resultIsError && (state.activeReasoning.size > 0 || state.activeText.size > 0 || state.toolBlocks.size > 0)) {
         state.failed = true;
         closeOpenBlocks(state);
         safeEnqueue(controller, {
@@ -1167,19 +1202,26 @@ function handleResult(m, state) {
         }
     };
     const isAuthError = state.authExpired;
-    const subtype = isAuthError
-        ? "authentication_failed"
-        : typeof m.subtype === "string" ? m.subtype : "error_during_execution";
     const isError = isAuthError || m.is_error === true || m.subtype !== "success";
     if (isError) {
         state.failed = true;
         const detail = Array.isArray(m.errors)
             ? redactSensitiveText((safeJsonStringify(m.errors) ?? "").slice(0, 4096))
             : "";
+        const quotaError = m.error_code === 118
+            || /(?:credit|quota).*(?:limit|exceed)|(?:limit|exceed).*(?:credit|quota)/i.test(detail);
+        const subtype = isAuthError
+            ? "authentication_failed"
+            : quotaError
+                ? "quota_exceeded"
+                : typeof m.subtype === "string" ? m.subtype : "error_during_execution";
+        const errorDetail = quotaError
+            ? `${detail}${detail ? " " : ""}Upgrade: ${QODER_UPGRADE_URL}`
+            : detail;
         state.invalidSession = isInvalidSessionError(subtype, detail);
         const error = state.authExpired
             ? new QoderAuthError("Qoder authentication expired during the request. Re-authenticate with `qoder login` or refresh QODER_PERSONAL_ACCESS_TOKEN.")
-            : new QoderSdkResultError(subtype, detail);
+            : new QoderSdkResultError(subtype, errorDetail);
         record();
         safeEnqueue(controller, { type: "error", error });
         emitFinish(state, makeUsage(inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens), makeFinishReason("error", subtype), undefined);
@@ -1244,5 +1286,6 @@ function closeOpenBlocks(state) {
     state.activeReasoning.clear();
     state.activeText.clear();
     state.toolBlocks.clear();
+    state.closedBlockIndexes.clear();
 }
 //# sourceMappingURL=language-model.js.map

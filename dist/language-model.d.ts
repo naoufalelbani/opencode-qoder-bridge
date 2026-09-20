@@ -25,6 +25,7 @@ interface StreamState {
         providerExecuted: boolean;
         hasInput: boolean;
     }>;
+    closedBlockIndexes: Set<number>;
     openBlocks: OpenBlock[];
     sawStreamText: boolean;
     sawStreamTool: boolean;

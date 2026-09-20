@@ -384,7 +384,9 @@ export const tui = async (api) => {
                                         const current = quota();
                                         return current.used == null || current.total == null || current.remaining == null
                                             ? "Account quota unavailable"
-                                            : `Account: ${formatCredits(current.used)}/${formatCredits(current.total)} · ${formatCredits(current.remaining)} left`;
+                                            : current.warning && current.total === 0
+                                                ? "Account: quota exhausted"
+                                                : `Account: ${formatCredits(current.used)}/${formatCredits(current.total)} · ${formatCredits(current.remaining)} left`;
                                     },
                                 }),
                             ],

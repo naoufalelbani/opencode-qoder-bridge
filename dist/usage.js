@@ -92,9 +92,19 @@ export function formatUsageReport(u) {
     if (typeof u.totalUsagePercentage === "number" && Number.isFinite(u.totalUsagePercentage)) {
         lines.push(`  Usage: ${u.totalUsagePercentage.toFixed(1)}%`);
     }
-    const quota = bucketLine("  Quota", u.userQuota);
-    if (quota)
-        lines.push(quota);
+    const quotaIsExhausted = u.isQuotaExceeded === true
+        && u.userQuota
+        && typeof u.userQuota.total === "number"
+        && Number.isFinite(u.userQuota.total)
+        && u.userQuota.total === 0;
+    if (quotaIsExhausted) {
+        lines.push("  Quota: exhausted (0 credits remaining)");
+    }
+    else {
+        const quota = bucketLine("  Quota", u.userQuota);
+        if (quota)
+            lines.push(quota);
+    }
     if (u.addOnQuota && finiteNonNegative(u.addOnQuota.total) > 0) {
         const addOn = bucketLine("  Add-on", u.addOnQuota);
         if (addOn)
@@ -106,10 +116,16 @@ export function formatUsageReport(u) {
     }
     if (u.isQuotaExceeded)
         lines.push("  WARNING: quota exceeded");
+    const upgradeUrl = safeLabel(u.upgradeUrl, 512);
+    if (upgradeUrl)
+        lines.push(`  Upgrade: ${upgradeUrl}`);
     if (typeof u.expiresAt === "number" && Number.isFinite(u.expiresAt) && u.expiresAt > 0) {
         const expires = new Date(u.expiresAt);
-        if (!Number.isNaN(expires.getTime()))
+        // Qoder uses year 9999 as a no-expiry sentinel; displaying it as a real
+        // renewal date makes an exhausted account look incorrectly healthy.
+        if (!Number.isNaN(expires.getTime()) && expires.getUTCFullYear() < 9990) {
             lines.push(`  Expires: ${expires.toISOString().slice(0, 10)}`);
+        }
     }
     return lines.join("\n");
 }

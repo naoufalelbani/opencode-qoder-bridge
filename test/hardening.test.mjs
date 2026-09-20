@@ -20,6 +20,7 @@ const { isDebugEnabled, describeError, redactSensitiveText } = await import(DIST
 const { handleSdkMessage, QoderLanguageModel } = await import(DIST + "language-model.js");
 const { ensureQoderSession, getQoderSession, getQoderSessionForCwd, deleteQoderSession } = await import(DIST + "session-store.js");
 const { buildPromptString, buildPromptIterable } = await import(DIST + "prompt-builder.js");
+const { formatUsageReport } = await import(DIST + "usage.js");
 const {
   selectEnabledModels,
   applyLiveModelUpdates,
@@ -119,6 +120,7 @@ function makeState(overrides = {}) {
       activeText: new Set(),
       activeReasoning: new Set(),
       toolBlocks: new Map(),
+      closedBlockIndexes: new Set(),
       openBlocks: [],
       sawStreamText: false,
       sawStreamTool: false,
@@ -330,6 +332,20 @@ describe("result metadata shape", () => {
     assert.equal(finish.finishReason.unified, "error");
   });
 
+  test("quota failures include an actionable upgrade link", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      error_code: 118,
+      errors: ["You've reached your credit usage limit."],
+    }, state);
+    const error = parts.find((part) => part.type === "error");
+    assert.equal(error?.error?.subtype, "quota_exceeded");
+    assert.match(error?.error?.message ?? "", /https:\/\/qoder\.com\/pricing\?client=qoder/);
+  });
+
   test("duplicate tool events produce one OpenCode tool call", () => {
     const { parts, state } = makeState({ functionToolNames: new Set(["read"]) });
     const start = {
@@ -355,6 +371,30 @@ describe("result metadata shape", () => {
 
     assert.equal(parts.filter((part) => part.type === "tool-call").length, 1);
     assert.equal(parts.filter((part) => part.type === "tool-input-start").length, 1);
+    assert.equal(parts.find((part) => part.type === "error"), undefined);
+  });
+
+  test("preserves a structured Qoder error when result arrives before block stop", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text", text: "partial output" },
+      },
+    }, state);
+    handleSdkMessage({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["Qoder stopped while applying the edit"],
+      usage: {},
+    }, state);
+    const error = parts.find((part) => part.type === "error");
+    assert.equal(error?.error?.subtype, "error_during_execution");
+    assert.match(error?.error?.message ?? "", /Qoder stopped while applying the edit/);
+    assert.equal(parts.at(-1)?.finishReason?.unified, "error");
   });
 
   test("MCP tool names remain provider-owned despite normalized host collisions", () => {
@@ -369,6 +409,58 @@ describe("result metadata shape", () => {
     }, state);
     handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 4 } }, state);
     assert.equal(parts.filter((part) => part.type === "tool-call").length, 0);
+  });
+
+  test("ignores replayed text and thinking start frames at the same index", () => {
+    const text = makeState();
+    const textStart = { type: "stream_event", event: {
+      type: "content_block_start", index: 7, content_block: { type: "text" },
+    } };
+    handleSdkMessage(textStart, text.state);
+    handleSdkMessage(textStart, text.state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 7, delta: { type: "text_delta", text: "ok" } },
+    }, text.state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 7 } }, text.state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 7 } }, text.state);
+    assert.equal(text.parts.filter((part) => part.type === "text-start").length, 1);
+    assert.equal(text.parts.find((part) => part.type === "error"), undefined);
+
+    const thinking = makeState();
+    const thinkingStart = { type: "stream_event", event: {
+      type: "content_block_start", index: 8, content_block: { type: "thinking" },
+    } };
+    handleSdkMessage(thinkingStart, thinking.state);
+    handleSdkMessage(thinkingStart, thinking.state);
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 8 } }, thinking.state);
+    assert.equal(thinking.parts.filter((part) => part.type === "reasoning-start").length, 1);
+    assert.equal(thinking.parts.find((part) => part.type === "error"), undefined);
+
+    handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 8 } }, thinking.state);
+    assert.equal(thinking.parts.find((part) => part.type === "error"), undefined);
+
+    handleSdkMessage(thinkingStart, thinking.state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 8, delta: { type: "thinking_delta", thinking: "late replay" } },
+    }, thinking.state);
+    assert.equal(thinking.parts.filter((part) => part.type === "reasoning-start").length, 1);
+    assert.equal(thinking.parts.filter((part) => part.type === "reasoning-delta").length, 0);
+    assert.equal(thinking.parts.find((part) => part.type === "error"), undefined);
+  });
+
+  test("still rejects conflicting block types at an open index", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", index: 9, content_block: { type: "text" } },
+    }, state);
+    handleSdkMessage({
+      type: "stream_event",
+      event: { type: "content_block_start", index: 9, content_block: { type: "thinking" } },
+    }, state);
+    assert.equal(parts.find((part) => part.type === "error")?.error?.subtype, "malformed_stream");
   });
 
   test("malformed SDK usage cannot emit non-finite provider usage", () => {
@@ -512,6 +604,24 @@ describe("result metadata shape", () => {
     const ends = parts.filter((part) => part.type === "text-end" || part.type === "tool-input-end" || part.type === "reasoning-end");
     assert.deepEqual(ends.map((part) => part.id), ["1", "ordered-tool", "3"]);
     assert.equal(parts.at(-1)?.finishReason.unified, "error");
+  });
+});
+
+describe("quota presentation", () => {
+  test("shows exhausted zero-credit accounts instead of misleading 0/0 and sentinel expiry", () => {
+    const report = formatUsageReport({
+      userType: "personal_standard",
+      totalUsagePercentage: 0,
+      isQuotaExceeded: true,
+      userQuota: { total: 0, used: 0, remaining: 0, percentage: 0, unit: "credits" },
+      upgradeUrl: "https://qoder.com/pricing?client=qoder",
+      expiresAt: 253402214400000,
+    });
+    assert.match(report, /Quota: exhausted \(0 credits remaining\)/);
+    assert.match(report, /WARNING: quota exceeded/);
+    assert.match(report, /Upgrade: https:\/\/qoder\.com\/pricing/);
+    assert.doesNotMatch(report, /0\/0 credits/);
+    assert.doesNotMatch(report, /9999-12-31/);
   });
 });
 
