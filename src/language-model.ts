@@ -834,6 +834,10 @@ export function handleSdkMessage(m: Record<string, unknown>, state: StreamState)
     handleResult(m, state);
   } else if (type === "system") {
     handleSystem(m, state);
+  } else {
+    // Keep forward compatibility with SDK additions without silently losing
+    // evidence when a new message type affects a future integration.
+    debug(`Ignoring unsupported Qoder SDK message type: ${type.slice(0, 128)}`);
   }
 }
 

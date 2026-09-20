@@ -59,3 +59,20 @@ jobs:
 
       - name: Publish with npm trusted publishing and provenance
         run: npm publish --access public --provenance
+
+      - name: Verify package is visible on npm
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          for attempt in {1..12}; do
+            if test "$(npm view "${package_name}@${package_version}" version 2>/dev/null || true)" = "$package_version"; then
+              echo "Verified ${package_name}@${package_version} on npm"
+              exit 0
+            fi
+            echo "Waiting for npm registry propagation (attempt $attempt/12)"
+            sleep 10
+          done
+          echo "Published package was not visible on npm after waiting" >&2
+          exit 1

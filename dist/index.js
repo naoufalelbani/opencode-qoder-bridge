@@ -1,4 +1,6 @@
 import { tool } from "@opencode-ai/plugin";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels } from "./models.js";
 import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
@@ -31,6 +33,26 @@ function discoveryOptions(options) {
     if (typeof options.cwd === "string" && options.cwd.trim())
         result.cwd = options.cwd;
     return result;
+}
+function warnOnUnsafeOptions(options, cwd) {
+    const inactivity = typeof options.timeoutMs === "number" ? options.timeoutMs : 30 * 60 * 1000;
+    const maximum = typeof options.maxDurationMs === "number" ? options.maxDurationMs : 2 * 60 * 60 * 1000;
+    if (Number.isFinite(inactivity) && Number.isFinite(maximum) && maximum < inactivity) {
+        warn("Qoder maxDurationMs is shorter than timeoutMs; the absolute limit will win");
+    }
+    if (options.permissionMode === "bypassPermissions") {
+        warn("Qoder bypassPermissions is enabled; review this workspace before allowing model actions");
+    }
+    if (options.sessionPersistence === true && typeof options.sessionKey !== "string") {
+        warn("Qoder sessionPersistence is enabled without a sessionKey; persistence will be unavailable");
+    }
+    try {
+        if (!existsSync(resolve(cwd)))
+            warn(`Qoder workspace does not exist: ${cwd}`);
+    }
+    catch {
+        warn(`Qoder workspace could not be validated: ${cwd}`);
+    }
 }
 function buildFallbackEntry(m) {
     return {
@@ -143,6 +165,7 @@ const plugin = async (input) => {
                 configuredCwd = mergedOptions.cwd;
             configuredSessionKey = typeof mergedOptions.sessionKey === "string" ? mergedOptions.sessionKey : undefined;
             configuredSessionId = typeof mergedOptions.sessionId === "string" ? mergedOptions.sessionId : undefined;
+            warnOnUnsafeOptions(mergedOptions, configuredCwd);
             if (Object.keys(bridgedMcp).length > 0) {
                 mergedOptions.mcpServers = {
                     ...(isRecord(existingOptions.mcpServers) ? existingOptions.mcpServers : {}),

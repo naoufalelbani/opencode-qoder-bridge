@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.19] - 2026-09-20
+## [0.1.20] - 2026-09-20
 
 ### Added
 
@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format follows
   watchdog, preventing a continuously noisy SDK stream from running forever.
 - Documented the bridge-only timeout boundary and clarified that OpenCode owns
   retries, cancellation UX, and host session orchestration.
+- Added warnings for unsafe or contradictory bridge configuration.
 
 ### Changed
 
@@ -25,6 +26,9 @@ All notable changes to this project are documented here. The format follows
 - Added an absolute two-hour default wall-clock limit so continuously noisy SDK
   streams cannot run forever; the limit is configurable up to seven days.
 - Preserved the absolute limit when the inactivity watchdog is reset.
+- Unknown future SDK message types are now recorded in debug logs instead of
+  being silently invisible.
+- Release automation now verifies npm registry visibility after publishing.
 
 ## [0.1.18] - 2026-09-20
 
