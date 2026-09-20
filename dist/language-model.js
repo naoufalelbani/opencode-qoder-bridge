@@ -447,8 +447,6 @@ export class QoderLanguageModel {
         const armInactivityTimeout = () => {
             if (requestTimer)
                 clearTimeout(requestTimer);
-            if (hardTimer)
-                clearTimeout(hardTimer);
             requestTimer = setTimeout(() => {
                 timedOut = true;
                 debug(`Qoder request inactive for ${timeoutMs}ms`);

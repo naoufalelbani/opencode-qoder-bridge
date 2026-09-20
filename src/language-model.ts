@@ -498,7 +498,6 @@ export class QoderLanguageModel implements LanguageModelV3 {
     );
     const armInactivityTimeout = () => {
       if (requestTimer) clearTimeout(requestTimer);
-      if (hardTimer) clearTimeout(hardTimer);
       requestTimer = setTimeout(() => {
         timedOut = true;
         debug(`Qoder request inactive for ${timeoutMs}ms`);
