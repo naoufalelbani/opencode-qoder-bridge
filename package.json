@@ -76,7 +76,7 @@
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.18.31",
-    "@qoder-ai/qoder-agent-sdk": "^1.0.45",
+    "@qoder-ai/qoder-agent-sdk": "^1.0.46",
     "jsonc-parser": "^3.3.1",
     "zod": "^4.6.5"
   },
@@ -113,7 +113,7 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "allowScripts": {
-    "@qoder-ai/qoder-agent-sdk@1.0.45": true,
+    "@qoder-ai/qoder-agent-sdk@1.0.46": true,
     "msgpackr-extract@3.0.4": true
   },
   "directories": {
