@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.20] - 2026-09-20
+## [0.1.21] - 2026-09-20
 
 ### Added
 
@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 - Documented the bridge-only timeout boundary and clarified that OpenCode owns
   retries, cancellation UX, and host session orchestration.
 - Added warnings for unsafe or contradictory bridge configuration.
+- Added protocol contract coverage for representative SDK messages.
 
 ### Changed
 
@@ -29,6 +30,8 @@ All notable changes to this project are documented here. The format follows
 - Unknown future SDK message types are now recorded in debug logs instead of
   being silently invisible.
 - Release automation now verifies npm registry visibility after publishing.
+- Added a 100,000-event per-turn SDK stream limit to prevent unbounded memory
+  growth from noisy or malformed transports.
 
 ## [0.1.18] - 2026-09-20
 
