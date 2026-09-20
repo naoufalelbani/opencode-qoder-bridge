@@ -166,7 +166,11 @@ function abortError() {
 function safePublicError(error) {
     if (error instanceof QoderAuthError || error instanceof QoderSdkResultError)
         return error;
-    return new Error(describeError(error) || "Qoder request failed");
+    const detail = describeError(error) || "Qoder request failed";
+    if (/network|econn(reset|refused)|enotfound|etimedout|timeout|socket|fetch failed|5\d\d/i.test(detail)) {
+        return new QoderSdkResultError("network_error", detail, { cause: error });
+    }
+    return new Error(detail);
 }
 function tokenCount(value) {
     return Math.floor(finiteNonNegative(value));
@@ -408,6 +412,7 @@ export class QoderLanguageModel {
         return { content, finishReason, usage, providerMetadata, warnings: [] };
     }
     async doStream(options) {
+        const requestId = randomUUID().slice(0, 12);
         const cli = findQoderCLI();
         const childEnvironment = qoderEnvironment(this.bridgeOptions.env);
         if (!hasQoderCredential(childEnvironment)) {
@@ -575,7 +580,7 @@ export class QoderLanguageModel {
                             }
                             const sessionId = this.bridgeOptions.sessionId ?? persisted?.qoderSessionId ?? randomUUID();
                             const shouldResume = Boolean(this.bridgeOptions.sessionId || persisted);
-                            debug(`doStream model=${model.id} sessionId=${sessionId} cwd=${cwd} resume=${shouldResume}`);
+                            debug(`[${requestId}] doStream model=${model.id} sessionId=${sessionId} cwd=${cwd} resume=${shouldResume}`);
                             const promptMessages = options.prompt;
                             const promptInput = shouldResume ? latestPrompt(promptMessages) : promptMessages;
                             const prompt = promptHasImage(promptInput)
@@ -684,7 +689,7 @@ export class QoderLanguageModel {
                         safeClose(controller);
                         return;
                     }
-                    debug("Stream failed:", describeError(err));
+                    debug(`[${requestId}] Stream failed:`, describeError(err));
                     if (!state.finished) {
                         const streamError = state.authExpired
                             ? new QoderAuthError("Qoder authentication expired during the request. Re-authenticate with `qoder login` or refresh QODER_PERSONAL_ACCESS_TOKEN.")
