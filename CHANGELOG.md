@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.19] - 2026-09-20
 
 ### Added
 
@@ -12,6 +12,19 @@ All notable changes to this project are documented here. The format follows
   watchdog, preventing a continuously noisy SDK stream from running forever.
 - Documented the bridge-only timeout boundary and clarified that OpenCode owns
   retries, cancellation UX, and host session orchestration.
+
+### Changed
+
+- Updated the Qoder Agent SDK dependency to `1.0.46`.
+- Added correlation IDs to opt-in debug logs for individual Qoder requests.
+- Classified transport failures as `network_error` while preserving existing
+  authentication, quota, timeout, and malformed-stream categories.
+
+### Fixed
+
+- Added an absolute two-hour default wall-clock limit so continuously noisy SDK
+  streams cannot run forever; the limit is configurable up to seven days.
+- Preserved the absolute limit when the inactivity watchdog is reset.
 
 ## [0.1.18] - 2026-09-20
 
