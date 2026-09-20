@@ -1,0 +1,31 @@
+name: Security and package audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.22.2"
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm audit --audit-level=low
+      - run: npm run build
+      - run: npm pack --dry-run
+      - name: Check tracked files for accidental secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -I -E '(^|[^A-Za-z])(pt|qoder)_[A-Za-z0-9._~-]{12,}' -- ':!test/fixtures/*'; then
+            echo "Potential credential found in tracked files" >&2
+            exit 1
+          fi
