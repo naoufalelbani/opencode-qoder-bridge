@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.21] - 2026-09-20
+## [0.1.22] - 2026-09-20
 
 ### Added
 
@@ -32,6 +32,7 @@ All notable changes to this project are documented here. The format follows
 - Release automation now verifies npm registry visibility after publishing.
 - Added a 100,000-event per-turn SDK stream limit to prevent unbounded memory
   growth from noisy or malformed transports.
+- Added clean-package installation verification to CI and release checks.
 
 ## [0.1.18] - 2026-09-20
 
