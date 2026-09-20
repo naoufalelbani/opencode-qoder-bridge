@@ -1,4 +1,4 @@
-import type { EvolutionOptions, MemoryOptions, SecurityScanOptions } from "@qoder-ai/qoder-agent-sdk";
+import type { EvolutionOptions, MemoryOptions, Options, Query, SecurityScanOptions } from "@qoder-ai/qoder-agent-sdk";
 export interface QoderModelDef {
     id: string;
     name: string;
@@ -19,6 +19,11 @@ export interface QoderModelDef {
     };
 }
 export interface QoderBridgeOptions {
+    /** Internal test seam; JSON/OpenCode configuration cannot provide functions. */
+    query?: (input: {
+        prompt: unknown;
+        options: Options;
+    }) => Query;
     /** Force a transport mode. `sdk` (default) streams via the agent SDK. */
     mode?: "sdk";
     /** Working directory for the Qoder process and persisted session identity. */

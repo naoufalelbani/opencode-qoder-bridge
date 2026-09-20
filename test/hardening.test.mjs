@@ -755,6 +755,47 @@ describe("doGenerate content aggregation", () => {
   });
 });
 
+describe("injected SDK transport", () => {
+  function fakeQuery(messages) {
+    return {
+      async next() {
+        return messages.length > 0 ? { value: messages.shift(), done: false } : { done: true };
+      },
+      async return() { return { done: true }; },
+      [Symbol.asyncIterator]() { return this; },
+    };
+  }
+
+  test("exercises the real bridge stream with an injected SDK query", async () => {
+    const messages = [
+      { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text" } } },
+      { type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hello" } } },
+      { type: "stream_event", event: { type: "content_block_stop", index: 0 } },
+      { type: "result", subtype: "success", result: "hello", usage: {} },
+    ];
+    const lm = new QoderLanguageModel("auto", {
+      env: { QODER_PERSONAL_ACCESS_TOKEN: "pt-injected-test" },
+      query: () => fakeQuery(messages),
+      timeoutMs: 1_000,
+      maxDurationMs: 5_000,
+    });
+    const result = await lm.doGenerate({ prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }] });
+    assert.deepEqual(result.content, [{ type: "text", text: "hello" }]);
+  });
+
+  test("classifies an injected transport failure without leaking credentials", async () => {
+    const lm = new QoderLanguageModel("auto", {
+      env: { QODER_PERSONAL_ACCESS_TOKEN: "pt-injected-test" },
+      query: () => { throw new Error("ECONNRESET while contacting Qoder"); },
+    });
+    await assert.rejects(() => lm.doGenerate({ prompt: [] }), (error) => {
+      assert.match(error.message, /network_error/);
+      assert.doesNotMatch(error.message, /pt-injected-test/);
+      return true;
+    });
+  });
+});
+
 describe("history trimming", () => {
   const filler = "x".repeat(400);
 

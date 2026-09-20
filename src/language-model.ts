@@ -11,7 +11,7 @@ import type {
   LanguageModelV3StreamResult,
   LanguageModelV3Usage,
 } from "@ai-sdk/provider";
-import { query } from "@qoder-ai/qoder-agent-sdk";
+import { query as sdkQuery } from "@qoder-ai/qoder-agent-sdk";
 import type { Options, Query, SDKArtifactInfo, SDKPlanModeSnapshot } from "@qoder-ai/qoder-agent-sdk";
 import { getModel, DEFAULT_MODEL_ID, applyLiveModelUpdates } from "./models.js";
 import type { ModelDiscoveryOptions } from "./models.js";
@@ -639,7 +639,7 @@ export class QoderLanguageModel implements LanguageModelV3 {
               );
 
               if (externallyAborted || abortController.signal.aborted) return;
-              qoderQuery = query({ prompt, options: qoderOptions });
+              qoderQuery = (this.bridgeOptions.query ?? sdkQuery)({ prompt, options: qoderOptions });
               const activeQuery = qoderQuery;
               if (externallyAborted || abortController.signal.aborted) return;
               const iterator = activeQuery[Symbol.asyncIterator]();

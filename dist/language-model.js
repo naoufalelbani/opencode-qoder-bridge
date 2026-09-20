@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { query } from "@qoder-ai/qoder-agent-sdk";
+import { query as sdkQuery } from "@qoder-ai/qoder-agent-sdk";
 import { getModel, DEFAULT_MODEL_ID, applyLiveModelUpdates } from "./models.js";
 import { findQoderCLI } from "./auth.js";
 import { buildPromptString, buildPromptIterable, latestPrompt, promptHasImage } from "./prompt-builder.js";
@@ -595,7 +595,7 @@ export class QoderLanguageModel {
                             });
                             if (externallyAborted || abortController.signal.aborted)
                                 return;
-                            qoderQuery = query({ prompt, options: qoderOptions });
+                            qoderQuery = (this.bridgeOptions.query ?? sdkQuery)({ prompt, options: qoderOptions });
                             const activeQuery = qoderQuery;
                             if (externallyAborted || abortController.signal.aborted)
                                 return;
