@@ -14,6 +14,7 @@ function state() {
     sawStreamTool: false, sawStreamReasoning: false, emittedToolCall: false,
     pendingToolCalls: new Map(), lastStopReason: null, blockCounter: 0,
     outputChars: 0, finished: false, resultReceived: false,
+    eventCount: 0,
     seenToolCallIds: new Set(), seenMessageIds: new Set(), artifacts: [], parts,
   };
 }
@@ -33,4 +34,14 @@ test("unknown future SDK messages are ignored without corrupting open state", ()
   handleSdkMessage({ type: "future_qoder_event", payload: { version: 99 } }, s);
   assert.equal(s.finished, false);
   assert.equal(s.parts.length, 0);
+});
+
+test("SDK event budget fails closed", () => {
+  const s = state();
+  for (let index = 0; index < 100_001; index += 1) {
+    handleSdkMessage({ type: "future_qoder_event", index }, s);
+    if (s.finished) break;
+  }
+  assert.equal(s.finished, true);
+  assert.equal(s.parts.find((part) => part.type === "error")?.error.subtype, "stream_too_large");
 });

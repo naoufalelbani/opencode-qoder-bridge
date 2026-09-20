@@ -38,6 +38,7 @@ interface StreamState {
     lastStopReason: string | null;
     blockCounter: number;
     outputChars: number;
+    eventCount: number;
     finished: boolean;
     resultReceived: boolean;
     seenToolCallIds?: Set<string>;

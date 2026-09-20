@@ -26,6 +26,7 @@ const MAX_OUTPUT_CHARS = 8_000_000;
 const MAX_METADATA_NODES = 2_000;
 const MAX_METADATA_STRING = 4_096;
 const MAX_STOP_REASON_LENGTH = 256;
+const MAX_SDK_EVENTS = 100_000;
 const QODER_UPGRADE_URL = "https://qoder.com/pricing?client=qoder";
 async function flushSdkBackgroundWork(activeQuery, bridgeOptions) {
     const operations = [];
@@ -533,6 +534,7 @@ export class QoderLanguageModel {
                     lastStopReason: null,
                     blockCounter: 0,
                     outputChars: 0,
+                    eventCount: 0,
                     finished: false,
                     resultReceived: false,
                     seenToolCallIds: new Set(),
@@ -774,6 +776,11 @@ export class QoderLanguageModel {
 export function handleSdkMessage(m, state) {
     if (state.finished || !isRecord(m))
         return;
+    state.eventCount = (state.eventCount ?? 0) + 1;
+    if (state.eventCount > MAX_SDK_EVENTS) {
+        failStream(state, "stream_too_large", "Qoder sent more SDK events than the bridge limit");
+        return;
+    }
     const messageId = messageDedupeKey(m);
     if (messageId) {
         const seenMessageIds = state.seenMessageIds ??= new Set();
