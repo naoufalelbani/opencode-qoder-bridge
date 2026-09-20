@@ -68,6 +68,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test test/*.test.mjs",
     "test:stress": "npm run build && node --test test/stress.test.mjs",
+    "test:package": "npm run build && node --test test/package-install.test.mjs",
     "test:e2e": "npm run build && node --test test/e2e.test.mjs",
     "audit": "npm audit --audit-level=low",
     "check": "npm run typecheck && npm test && npm run audit",

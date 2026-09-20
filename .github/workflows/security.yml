@@ -21,6 +21,7 @@ jobs:
       - run: npm audit --audit-level=low
       - run: npm run build
       - run: npm pack --dry-run
+      - run: npm run test:package
       - name: Check tracked files for accidental secrets
         shell: bash
         run: |
