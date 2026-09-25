@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.23] - 2026-09-25
+## [0.1.24] - 2026-09-25
 
 ### Added
 
@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows
   CLI resolution debug logging (`QODER_BRIDGE_DEBUG=1`), and a region line in
   the `qoder_usage` report.
 - Added a CN regression suite (`test/auth-cn.test.mjs`).
+
+### Changed
+
+- Updated the Qoder Agent SDK dependency to `1.0.50`.
 
 ### Fixed
 
