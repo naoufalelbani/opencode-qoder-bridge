@@ -1,11 +1,11 @@
 import { query } from "@qoder-ai/qoder-agent-sdk";
-import { findQoderCLI } from "./auth.js";
+import { findQoderCLI, getQoderRegion } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
 import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { resolveStateDir } from "./state-dir.js";
 import { debug, describeError } from "./logger.js";
 import { mergedEnvironment } from "./environment.js";
@@ -220,8 +220,13 @@ function catalogScope(environment, options) {
     const authScope = token
         ? `pat:${fingerprint(token)}`
         : hasQoderCredential(environment) ? "local-login" : "anonymous";
+    // Global and CN installs must not share a cached catalog: the CLI binary
+    // name (qodercli vs qoderclicn) plus the region preference isolate them.
+    const cliPath = findQoderCLI();
     const parts = [
         `auth=${authScope}`,
+        `region=${environment.QODER_REGION ?? ""}`,
+        `cli=${cliPath ? basename(cliPath) : ""}:${getQoderRegion(cliPath) ?? ""}`,
         `scene=${environment.QODER_SCENE ?? ""}`,
         `vpc=${safeOption(options.vpcEndpoint) ?? environment.QODER_VPC_ENDPOINT ?? environment.QODERCN_VPC_ENDPOINT ?? ""}`,
         `endpoint=${environment.QODER_API_URL ?? environment.QODER_BASE_URL ?? ""}`,

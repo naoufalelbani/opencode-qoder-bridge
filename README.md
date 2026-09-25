@@ -56,6 +56,29 @@ the official Qoder SDK.
 PAT authentication uses the SDK's worker runtime when available and does not
 require a local `qoder login`. CLI authentication remains supported.
 
+### Qoder CN region
+
+Both global and CN regions work with this same package — no separate
+install, no config change. The bridge auto-detects whichever login/CLI is
+present:
+
+- Global: `qoder login` → `~/.qoder/.auth/user`, binary `qodercli`
+  (`~/.qoder/local/`, `~/.qoder/bin/qodercli/`, or `PATH`).
+- CN: CN-CLI login → `~/.qoder-cn/.auth/user`, binary `qoderclicn`
+  (`~/.qoder-cn/local/`, `~/.qoder-cn/bin/qoderclicn/`, or `PATH`).
+
+Just install and log in with the CN CLI, then restart OpenCode. Discovery
+order is `QODER_CLI_PATH` override → `PATH` (`qodercli`, then `qoderclicn`
+per directory) → `~/.qoder/local` → `~/.qoder-cn/local` → latest versioned
+binary across both `bin/` directories. If both regions are installed, global
+takes precedence on ties; versioned binaries otherwise resolve to the latest
+version. To force one region, set `QODER_REGION=global|cn` (default `auto`)
+or pin `QODER_CLI_PATH` to an explicit executable. The `qoder_usage` report
+shows the detected region, and `QODER_BRIDGE_DEBUG=1` logs the resolved CLI
+path and region. For CN VPC/scene accounts, the existing `QODER_SCENE`,
+`QODERCN_VPC_ENDPOINT` (also `QODER_VPC_ENDPOINT`, `QODER_API_URL`)
+environment variables are honored for model discovery.
+
 With npm 12, dependency install scripts may be blocked by the consuming
 project's script-approval policy. To download the SDK's bundled Worker
 runtime, approve and rebuild the installed SDK version from that project:
@@ -492,7 +515,7 @@ The plugin registers several built-in OpenCode tools:
 
 | Problem | Solution |
 |---------|----------|
-| Auth prompt at startup | Run `qoder login`, then restart opencode |
+| Auth prompt at startup | Run `qoder login` (global) or the CN-CLI login (creates `~/.qoder-cn/.auth/user`), then restart opencode |
 | Qoder runtime unavailable | Authenticate with `qoder login` or set `QODER_PERSONAL_ACCESS_TOKEN`; the bridge uses the SDK's bundled Worker runtime for model discovery and can fall back to an installed CLI automatically |
 | Qoder says it cannot read or edit files | Upgrade to the current bridge, rebuild it if using a checkout, confirm the plugin points at `dist/index.js`, and restart OpenCode. Do not add `Read`, `Write`, `Edit`, or `Bash` to `disallowedTools` unless you intend to block them |
 | `invalid JSON for tool read/write` | Use a current bridge build and restart OpenCode so an old cached plugin is not reused. Recent versions normalize Qoder's streamed empty-input prefix before forwarding the complete tool payload |

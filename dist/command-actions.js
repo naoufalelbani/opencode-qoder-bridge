@@ -1,6 +1,7 @@
 import { forkSession, listSessions } from "@qoder-ai/qoder-agent-sdk";
 import { listModels } from "./models.js";
 import { getLiveUsage, formatUsageReport } from "./usage.js";
+import { getQoderRegion } from "./auth.js";
 import { summarize, formatCost } from "./cost.js";
 import { clearAllSessions, deleteQoderSessionForCwd, getQoderSessionForCwd } from "./session-store.js";
 import { describeError } from "./logger.js";
@@ -107,6 +108,7 @@ export async function runQoderUsage(_context) {
         const lines = [];
         const live = await getLiveUsage();
         lines.push(live ? formatUsageReport(live) : "Live usage unavailable (not logged in or Qoder runtime unavailable).");
+        lines.push(`  Region: ${getQoderRegion() ?? "unknown"} (CLI discovery)`);
         const summary = summarize();
         lines.push("");
         lines.push("Local Cost Ledger");

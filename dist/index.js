@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels } from "./models.js";
 import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
+import { cliLoginHint } from "./auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { ensureTuiRegistered } from "./tui-register.js";
 import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
@@ -189,11 +190,11 @@ const plugin = async (input) => {
             methods: [
                 {
                     type: "api",
-                    label: `Use ${QODER_PAT_ENV} or run qoder login in your terminal`,
+                    label: `Use ${QODER_PAT_ENV} or run qoder login in your terminal (CN region: the CN CLI login)`,
                     prompts: [],
                     async authorize() {
                         if (!hasQoderCredential()) {
-                            warn("Authorize failed: no usable Qoder credential found.", `Run qoder login or set ${QODER_PAT_ENV}, then retry.`);
+                            warn("Authorize failed: no usable Qoder credential found.", `${cliLoginHint()}, then retry.`);
                             return { type: "failed" };
                         }
                         return { type: "success", key: "qoder-cli-auth" };
