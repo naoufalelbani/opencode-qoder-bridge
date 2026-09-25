@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.23] - 2026-09-25
+
+### Added
+
+- Added Qoder CN region support in the same package: CLI discovery and login
+  detection now cover `~/.qoder-cn` / `qoderclicn` alongside the global
+  `~/.qoder` / `qodercli`, with global taking precedence on ties.
+- Added `QODER_REGION=auto|global|cn` to restrict CLI discovery to one region
+  and `QODER_CLI_PATH` to pin an explicit CLI binary.
+- Added an exported `getQoderRegion()` helper, region-aware auth error hints,
+  CLI resolution debug logging (`QODER_BRIDGE_DEBUG=1`), and a region line in
+  the `qoder_usage` report.
+- Added a CN regression suite (`test/auth-cn.test.mjs`).
+
+### Fixed
+
+- Isolated model catalog caches by region/CLI so global and CN installs no
+  longer share a cached catalog.
+
 ## [0.1.22] - 2026-09-20
 
 ### Added

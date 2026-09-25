@@ -3,7 +3,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { query as sdkQuery } from "@qoder-ai/qoder-agent-sdk";
 import { getModel, DEFAULT_MODEL_ID, applyLiveModelUpdates } from "./models.js";
-import { findQoderCLI } from "./auth.js";
+import { findQoderCLI, cliLoginHint } from "./auth.js";
 import { buildPromptString, buildPromptIterable, latestPrompt, promptHasImage } from "./prompt-builder.js";
 import { normalizeToolName, normalizeToolInputString } from "./tool-normalizer.js";
 import { recordTurn } from "./cost.js";
@@ -420,7 +420,7 @@ export class QoderLanguageModel {
         const cli = findQoderCLI();
         const childEnvironment = qoderEnvironment(this.bridgeOptions.env);
         if (!hasQoderCredential(childEnvironment)) {
-            throw new QoderAuthError("No Qoder credentials found. Run `qoder login` or set QODER_PERSONAL_ACCESS_TOKEN.");
+            throw new QoderAuthError(`No Qoder credentials found. ${cliLoginHint(childEnvironment)}`);
         }
         const cwd = resolveCwd(this.bridgeOptions.cwd);
         const modelDiscoveryOptions = { cwd };
@@ -617,7 +617,7 @@ export class QoderLanguageModel {
                                     break;
                             }
                             if (state.authExpired && !state.finished) {
-                                throw new QoderAuthError("Qoder authentication expired during the request. Re-authenticate with `qoder login` or refresh QODER_PERSONAL_ACCESS_TOKEN.");
+                                throw new QoderAuthError(`Qoder authentication expired during the request. ${cliLoginHint(childEnvironment)}`);
                             }
                             if (timedOut)
                                 throw timeoutError();
@@ -697,7 +697,7 @@ export class QoderLanguageModel {
                     debug(`[${requestId}] Stream failed:`, describeError(err));
                     if (!state.finished) {
                         const streamError = state.authExpired
-                            ? new QoderAuthError("Qoder authentication expired during the request. Re-authenticate with `qoder login` or refresh QODER_PERSONAL_ACCESS_TOKEN.")
+                            ? new QoderAuthError(`Qoder authentication expired during the request. ${cliLoginHint(childEnvironment)}`)
                             : timedOut ? timeoutError()
                                 : safePublicError(err);
                         closeOpenBlocks(state);
@@ -1269,7 +1269,7 @@ function handleResult(m, state) {
             : detail;
         state.invalidSession = isInvalidSessionError(subtype, detail);
         const error = state.authExpired
-            ? new QoderAuthError("Qoder authentication expired during the request. Re-authenticate with `qoder login` or refresh QODER_PERSONAL_ACCESS_TOKEN.")
+            ? new QoderAuthError(`Qoder authentication expired during the request. ${cliLoginHint()}`)
             : new QoderSdkResultError(subtype, errorDetail);
         record();
         safeEnqueue(controller, { type: "error", error });

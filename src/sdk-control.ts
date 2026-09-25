@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { startup } from "@qoder-ai/qoder-agent-sdk";
 import type { McpServerStatus, Options, Query, WarmQuery } from "@qoder-ai/qoder-agent-sdk";
-import { findQoderCLI } from "./auth.js";
+import { findQoderCLI, cliLoginHint } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
 import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { QoderAuthError } from "./errors.js";
@@ -85,7 +85,7 @@ export async function openSdkControlSession(
   const environment = childEnvironment(bridgeOptions.env);
   if (!hasQoderCredential(environment)) {
     throw new QoderAuthError(
-      "No Qoder credentials found. Run `qoder login` or set QODER_PERSONAL_ACCESS_TOKEN.",
+      `No Qoder credentials found. ${cliLoginHint(environment)}`,
     );
   }
 
