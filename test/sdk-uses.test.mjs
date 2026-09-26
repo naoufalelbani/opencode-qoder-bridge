@@ -82,12 +82,21 @@ describe("SDK feature use", () => {
       maxDurationMs: 60 * 60_000,
       initTimeoutMs: 10_000,
     });
-    await assert.rejects(
-      () => lm.doGenerate({ prompt: [{ role: "user", content: "hi" }] }),
-      (error) => {
-        assert.match(error.message, /did not start within 10000ms/);
-        return true;
-      },
-    );
+    // The bridge unrefs its timers (a watchdog must not hold the process
+    // open), so hold the loop explicitly; the hanging query never resolves.
+    // Keepalive outlives the test timeout so a broken watchdog fails by
+    // timeout, not by loop drain.
+    const keepalive = setTimeout(() => {}, 60_000);
+    try {
+      await assert.rejects(
+        () => lm.doGenerate({ prompt: [{ role: "user", content: "hi" }] }),
+        (error) => {
+          assert.match(error.message, /did not start within 10000ms/);
+          return true;
+        },
+      );
+    } finally {
+      clearTimeout(keepalive);
+    }
   });
 });
