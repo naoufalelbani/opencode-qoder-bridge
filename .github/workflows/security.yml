@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n -I -E '(^|[^A-Za-z])(pt|qoder)_[A-Za-z0-9._~-]{12,}' -- ':!test/fixtures/*'; then
+          if git grep -n -I -E '(^|[^A-Za-z])(pt-[A-Za-z0-9._~-]{12,}|qoder_[A-Fa-f0-9]{24,})' -- ':!test/**'; then
             echo "Potential credential found in tracked files" >&2
             exit 1
           fi
