@@ -66,13 +66,16 @@ jobs:
           set -euo pipefail
           package_name="$(node -p "require('./package.json').name")"
           package_version="$(node -p "require('./package.json').version")"
-          for attempt in {1..12}; do
+          # npm explicitly warns the package "may take a few minutes to
+          # become available" after a successful publish; 12x10s was proven
+          # too short (v0.2.0 published fine but was invisible at 2 minutes).
+          for attempt in $(seq 1 20); do
             if test "$(npm view "${package_name}@${package_version}" version 2>/dev/null || true)" = "$package_version"; then
               echo "Verified ${package_name}@${package_version} on npm"
               exit 0
             fi
-            echo "Waiting for npm registry propagation (attempt $attempt/12)"
-            sleep 10
+            echo "Waiting for npm registry propagation (attempt $attempt/20)"
+            sleep 15
           done
           echo "Published package was not visible on npm after waiting" >&2
           exit 1
