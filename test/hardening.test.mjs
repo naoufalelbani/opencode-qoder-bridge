@@ -676,7 +676,12 @@ describe("session and usage isolation", () => {
   test("usage fetch clears its inflight promise when no credential exists", async () => {
     const script = `
       delete process.env.QODER_PERSONAL_ACCESS_TOKEN;
-      const { getLiveUsage } = await import(${JSON.stringify(new URL("../dist/usage.js", import.meta.url).href)});
+      const mod = await import(${JSON.stringify(new URL("../dist/usage.js", import.meta.url).href)});
+      if (typeof mod.getLiveUsage !== "function") {
+        console.error("usage module shape unexpected: " + Object.keys(mod).join(","));
+        process.exit(3);
+      }
+      const { getLiveUsage } = mod;
       const first = getLiveUsage(true);
       await first;
       const second = getLiveUsage(true);
