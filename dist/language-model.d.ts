@@ -3,6 +3,7 @@ import type { SDKArtifactInfo, SDKPlanModeSnapshot } from "@qoder-ai/qoder-agent
 import type { ModelDiscoveryOptions } from "./models.js";
 import type { QoderBridgeOptions } from "./types.js";
 type StreamController = ReadableStreamDefaultController<LanguageModelV3StreamPart>;
+export declare function initTimeoutMs(value: unknown): number;
 type OpenBlock = {
     kind: "reasoning" | "text";
     index: number;
@@ -46,6 +47,7 @@ interface StreamState {
     failed?: boolean;
     authExpired?: boolean;
     invalidSession?: boolean;
+    initReceived?: boolean;
     artifacts: SDKArtifactInfo[];
     planMode?: SDKPlanModeSnapshot;
     skillEvolution?: Record<string, unknown>;

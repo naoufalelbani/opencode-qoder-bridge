@@ -17,19 +17,35 @@ function formatCredits(value) {
 function formatSessionCredits(value) {
     return (Number.isFinite(value) && value >= 0 ? value : 0).toFixed(2);
 }
+/**
+ * Render-path reads must never throw: the plugin API can go stale after a
+ * host reload while Solid effects/timers still reference it. A stale read
+ * degrades to "not qoder" / zero instead of crashing the sidebar.
+ */
+export function safeApiRead(fallback, read) {
+    try {
+        return read();
+    }
+    catch (error) {
+        debug("Qoder sidebar read failed:", describeError(error));
+        return fallback;
+    }
+}
 function usesQoder(api, sessionID) {
     if (!sessionID)
         return false;
-    const session = api.state.session.get(sessionID);
-    if (session?.model)
-        return session.model.providerID === "qoder";
-    const messages = api.state.session.messages(sessionID);
-    const latest = messages.at(-1);
-    if (!latest)
-        return false;
-    return latest.role === "user"
-        ? latest.model?.providerID === "qoder"
-        : latest.providerID === "qoder";
+    return safeApiRead(false, () => {
+        const session = api.state.session.get(sessionID);
+        if (session?.model)
+            return session.model.providerID === "qoder";
+        const messages = api.state.session.messages(sessionID);
+        const latest = messages.at(-1);
+        if (!latest)
+            return false;
+        return latest.role === "user"
+            ? latest.model?.providerID === "qoder"
+            : latest.providerID === "qoder";
+    });
 }
 function formatQuota(usage) {
     const quota = usage?.userQuota;
@@ -61,18 +77,20 @@ function formatQuota(usage) {
 function sessionSpent(api, sessionID) {
     if (!sessionID)
         return 0;
-    const sessionCost = api.state.session.get(sessionID)?.cost;
-    if (typeof sessionCost === "number" && Number.isFinite(sessionCost))
-        return sessionCost;
-    return api.state.session
-        .messages(sessionID)
-        .reduce((total, message) => {
-        if (message.role === "assistant" && typeof message.cost === "number" && Number.isFinite(message.cost)) {
-            const next = total + message.cost;
-            return Number.isFinite(next) ? next : Number.MAX_SAFE_INTEGER;
-        }
-        return total;
-    }, 0);
+    return safeApiRead(0, () => {
+        const sessionCost = api.state.session.get(sessionID)?.cost;
+        if (typeof sessionCost === "number" && Number.isFinite(sessionCost))
+            return sessionCost;
+        return api.state.session
+            .messages(sessionID)
+            .reduce((total, message) => {
+            if (message.role === "assistant" && typeof message.cost === "number" && Number.isFinite(message.cost)) {
+                const next = total + message.cost;
+                return Number.isFinite(next) ? next : Number.MAX_SAFE_INTEGER;
+            }
+            return total;
+        }, 0);
+    });
 }
 function estimatedSessionCredits(api, sessionID) {
     // Qoder's Credits Log presents reference cost in dollars and Credits in
@@ -270,20 +288,22 @@ export const tui = async (api) => {
     });
     const sessionBaselines = new Map();
     const sessionCredits = (sessionID) => {
-        const used = quota().used;
-        if (used == null)
-            return undefined;
-        const key = `opencode-qoder-bridge:credit-baseline:${sessionID}`;
-        let baseline = sessionBaselines.get(sessionID);
-        if (baseline == null) {
-            baseline = api.kv.get(key, undefined);
-            if (baseline == null || baseline > used) {
-                baseline = used;
-                api.kv.set(key, baseline);
+        return safeApiRead(undefined, () => {
+            const used = quota().used;
+            if (used == null)
+                return undefined;
+            const key = `opencode-qoder-bridge:credit-baseline:${sessionID}`;
+            let baseline = sessionBaselines.get(sessionID);
+            if (baseline == null) {
+                baseline = api.kv.get(key, undefined);
+                if (baseline == null || baseline > used) {
+                    baseline = used;
+                    api.kv.set(key, baseline);
+                }
+                sessionBaselines.set(sessionID, baseline);
             }
-            sessionBaselines.set(sessionID, baseline);
-        }
-        return Math.max(0, used - baseline);
+            return Math.max(0, used - baseline);
+        });
     };
     let refreshing = false;
     let refreshedAt = 0;

@@ -244,7 +244,14 @@ safety limits; OpenCode remains responsible for retries, cancellation UX, and
 host session orchestration.
 Control operations such as MCP status and OAuth use the SDK's
 `controlRequestTimeoutMs` (default 60 seconds, bounded to 5 minutes), while
-runtime shutdown uses `closeGraceMs` (default 2 seconds). These options tune
+runtime shutdown uses `closeGraceMs` (default 2 seconds). A separate
+`initTimeoutMs` budget (default 60 seconds, bounded to 10 seconds through 5
+minutes) aborts a wedged runtime that yields no first message, instead of
+waiting out the inactivity timeout. Set `options.maxTurns` to cap SDK agent
+turns per chat turn (positive integer; defaults to the SDK value), and
+`options.goalMaxTurns` for SDK goal pursuits. Set `options.sdkDebug` to
+forward `--debug` to qodercli; its stderr is captured into the bridge debug
+log whenever `QODER_BRIDGE_DEBUG=1` regardless. These options tune
 Qoder SDK lifecycle behavior only; OpenCode continues to own host session and
 UI lifecycle. Values in `options.env` override inherited process variables rather than
 replacing the complete child environment.

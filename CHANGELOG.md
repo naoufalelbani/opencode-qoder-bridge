@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+Lockstep policy: `opencode-qoder-bridge` and `pi-qoder-bridge` (separate repo)
+share version numbers and release together. `0.2.0` is the first aligned
+release. The pi package intentionally stays provider + usage only.
+
+## [0.2.0] - 2026-09-26
+
+First lockstep release aligned with `pi-qoder-bridge@0.2.0` (separate repo).
+
+### Added
+
+- New `initTimeoutMs` bridge option (default 60s, bounded 10s–5min): aborts
+  a wedged runtime that yields no first SDK message, instead of waiting out
+  the 30-minute inactivity timeout. Surfaces a timeout error with retry
+  guidance.
+- New `maxTurns` bridge option: caps SDK agent turns per chat turn
+  (positive integers only; omitted otherwise, SDK default governs).
+- New `goalMaxTurns` bridge option: same treatment for SDK goal pursuits.
+- New `sdkDebug` bridge option: forwards `--debug` to the qodercli child.
+  qodercli stderr is captured into the redacting bridge debug log whenever
+  `QODER_BRIDGE_DEBUG=1`, independent of that flag.
+- Runtime `permission_denied` events now surface as assistant text so denied
+  tool calls are visible instead of silently neutering a turn.
+- Exception hardening: sidebar render-path reads (`usesQoder`,
+  `sessionSpent`, credit baselines) degrade instead of throwing when the
+  host plugin API goes stale after a reload.
+- Two-repo sync contract in `RELEASING.md`: SDK version, auth
+  (PAT + `.qoderwork` / `.qoder` / `.qoder-cn` + region-aware hint), model
+  fallbacks + filtering + discovery timeout, usage cache + hint wording, and
+  Node engines stay in sync on every release. Host layers (opencode Plugin +
+  AI SDK streaming + TUI vs pi ExtensionAPI + `streamSimple`) are never
+  copied.
+
 ## [0.1.26] - 2026-09-26
 
 ### Changed

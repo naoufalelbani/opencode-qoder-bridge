@@ -56,6 +56,22 @@ export interface QoderBridgeOptions {
     allowDangerouslySkipPermissions?: boolean;
     /** Inactivity timeout for a chat turn in milliseconds; defaults to 30 minutes. */
     timeoutMs?: number;
+    /**
+     * Budget for the first SDK message of a chat turn in milliseconds; aborts
+     * a wedged runtime instead of waiting out the inactivity timeout.
+     * Defaults to 60 seconds, bounded to 10 seconds through 5 minutes.
+     */
+    initTimeoutMs?: number;
+    /** Optional cap on SDK agent turns per chat turn; defaults to the SDK value. */
+    maxTurns?: number;
+    /** Optional cap on SDK goal pursuits per chat turn; defaults to the SDK value. */
+    goalMaxTurns?: number;
+    /**
+     * Forward --debug to the qodercli child process (verbose runtime logs).
+     * qodercli stderr is captured into the bridge debug log whenever
+     * QODER_BRIDGE_DEBUG=1, independent of this flag.
+     */
+    sdkDebug?: boolean;
     /** Absolute wall-clock limit for a chat turn; defaults to 2 hours. */
     maxDurationMs?: number;
     /** SDK control-request timeout in milliseconds; defaults to the SDK value. */
