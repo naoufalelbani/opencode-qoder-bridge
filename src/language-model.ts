@@ -23,7 +23,7 @@ import type { QoderBridgeOptions } from "./types.js";
 import { deleteQoderSession, ensureQoderSession, getQoderSessionForCwd, getQoderSessionResetEpoch, withQoderSessionLease } from "./session-store.js";
 import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { QoderAuthError, QoderSdkResultError } from "./errors.js";
-import { debug, describeError, redactSensitiveText } from "./logger.js";
+import { debug, describeError, isDebugEnabled, redactSensitiveText } from "./logger.js";
 import { mergedEnvironment } from "./environment.js";
 import { withTimeout } from "./async-utils.js";
 
@@ -36,6 +36,9 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MAX_DURATION_MS = 2 * 60 * 60 * 1000;
 const MAX_MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_INIT_TIMEOUT_MS = 60_000;
+const MIN_INIT_TIMEOUT_MS = 10_000;
+const MAX_INIT_TIMEOUT_MS = 5 * 60_000;
 const CLEANUP_GRACE_MS = 5_000;
 const BACKGROUND_FLUSH_TIMEOUT_MS = 10_000;
 const MAX_SEEN_MESSAGE_IDS = 100_000;
@@ -172,6 +175,23 @@ function requestTimeoutMs(value: unknown): number {
 function maxDurationMs(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return DEFAULT_MAX_DURATION_MS;
   return Math.min(MAX_MAX_DURATION_MS, Math.max(1, Math.floor(value)));
+}
+
+export function initTimeoutMs(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return DEFAULT_INIT_TIMEOUT_MS;
+  return Math.min(MAX_INIT_TIMEOUT_MS, Math.max(MIN_INIT_TIMEOUT_MS, Math.floor(value)));
+}
+
+function maxTurns(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) return undefined;
+  return value;
+}
+
+function goalMaxTurns(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) return undefined;
+  return value;
 }
 
 function boundedMilliseconds(value: unknown, fallback: number, max: number): number | undefined {
@@ -359,6 +379,7 @@ interface StreamState {
   failed?: boolean;
   authExpired?: boolean;
   invalidSession?: boolean;
+  initReceived?: boolean;
   artifacts: SDKArtifactInfo[];
   planMode?: SDKPlanModeSnapshot;
   skillEvolution?: Record<string, unknown>;
@@ -495,17 +516,28 @@ export class QoderLanguageModel implements LanguageModelV3 {
     let externallyAborted = false;
     let timedOut = false;
     let hardTimedOut = false;
+    let initTimedOut = false;
     let requestTimer: ReturnType<typeof setTimeout> | undefined;
     let hardTimer: ReturnType<typeof setTimeout> | undefined;
+    let initTimer: ReturnType<typeof setTimeout> | undefined;
     let cleanupPromise: Promise<void> | undefined;
     const timeoutMs = requestTimeoutMs(this.bridgeOptions.timeoutMs);
     const maxDuration = maxDurationMs(this.bridgeOptions.maxDurationMs);
-    const timeoutError = () => new QoderSdkResultError(
-      "timeout",
-      hardTimedOut
-        ? `Qoder request exceeded its maximum duration of ${maxDuration}ms`
-        : `Qoder request was inactive for ${timeoutMs}ms`,
-    );
+    const initBudgetMs = initTimeoutMs(this.bridgeOptions.initTimeoutMs);
+    const timeoutError = () => {
+      if (initTimedOut) {
+        return new QoderSdkResultError(
+          "timeout",
+          `Qoder runtime did not start within ${initBudgetMs}ms. The backend or qodercli process is stalled: check network, re-run 'qoder login', or try another model. Slow connections can raise initTimeoutMs (10s to 5min).`,
+        );
+      }
+      return new QoderSdkResultError(
+        "timeout",
+        hardTimedOut
+          ? `Qoder request exceeded its maximum duration of ${maxDuration}ms`
+          : `Qoder request was inactive for ${timeoutMs}ms`,
+      );
+    };
     const armInactivityTimeout = () => {
       if (requestTimer) clearTimeout(requestTimer);
       requestTimer = setTimeout(() => {
@@ -518,6 +550,7 @@ export class QoderLanguageModel implements LanguageModelV3 {
     const cleanup = (): Promise<void> => {
       if (cleanupPromise) return cleanupPromise;
       if (requestTimer) clearTimeout(requestTimer);
+      if (initTimer) clearTimeout(initTimer);
       if (options.abortSignal) {
         try { options.abortSignal.removeEventListener("abort", markExternal); } catch { /* ignore */ }
       }
@@ -601,6 +634,19 @@ export class QoderLanguageModel implements LanguageModelV3 {
             void cleanup();
           }, maxDuration);
           if (typeof hardTimer.unref === "function") hardTimer.unref();
+          // Init watchdog: the SDK's own initialize timeout is hardcoded and
+          // a wedged runtime can starve the iterator with no events at all.
+          // Bound first-message arrival independently so a stall fails fast
+          // with guidance instead of hanging until the inactivity timeout.
+          initTimer = setTimeout(() => {
+            if (!state.initReceived) {
+              initTimedOut = true;
+              timedOut = true;
+              debug(`Qoder runtime did not start within ${initBudgetMs}ms`);
+              void cleanup();
+            }
+          }, initBudgetMs);
+          if (typeof initTimer.unref === "function") initTimer.unref();
           armInactivityTimeout();
 
           const lockKey = sessionKey ? `${cwd}\u0000${sessionKey}` : undefined;
@@ -655,6 +701,10 @@ export class QoderLanguageModel implements LanguageModelV3 {
                 if (externallyAborted || timedOut) break;
                 armInactivityTimeout();
                 handleSdkMessage(next.value as Record<string, unknown>, state);
+                if (initTimer) {
+                  clearTimeout(initTimer);
+                  initTimer = undefined;
+                }
                 if (state.authExpired || state.finished) break;
               }
 
@@ -777,6 +827,22 @@ export class QoderLanguageModel implements LanguageModelV3 {
     if (controlRequestTimeoutMs !== undefined) opts.controlRequestTimeoutMs = controlRequestTimeoutMs;
     const closeGraceMs = boundedMilliseconds(this.bridgeOptions.closeGraceMs, 2_000, CLEANUP_GRACE_MS);
     if (closeGraceMs !== undefined) opts.closeGraceMs = closeGraceMs;
+    const turnCap = maxTurns(this.bridgeOptions.maxTurns);
+    if (turnCap !== undefined) opts.maxTurns = turnCap;
+    const goalCap = goalMaxTurns(this.bridgeOptions.goalMaxTurns);
+    if (goalCap !== undefined) opts.goalMaxTurns = goalCap;
+    // Runtime observability: qodercli stderr flows into the redacting debug
+    // log (no-op unless QODER_BRIDGE_DEBUG=1); --debug forwarding stays an
+    // explicit opt-in because of its volume.
+    opts.stderr = (data: string) => {
+      try {
+        const text = String(data ?? "");
+        if (text.trim()) debug(`[qodercli:stderr] ${text.slice(0, 500)}`);
+      } catch {
+        /* logging must never break turns */
+      }
+    };
+    if (this.bridgeOptions.sdkDebug || isDebugEnabled()) opts.debug = true;
 
     if (onAuthExpired) opts.onAuthExpired = onAuthExpired;
 
@@ -818,6 +884,7 @@ export class QoderLanguageModel implements LanguageModelV3 {
 
 export function handleSdkMessage(m: Record<string, unknown>, state: StreamState): void {
   if (state.finished || !isRecord(m)) return;
+  state.initReceived = true;
   state.eventCount = (state.eventCount ?? 0) + 1;
   if (state.eventCount > MAX_SDK_EVENTS) {
     failStream(state, "stream_too_large", "Qoder sent more SDK events than the bridge limit");
@@ -858,11 +925,26 @@ function handleSystem(m: Record<string, unknown>, state: StreamState): void {
     if (typeof m.plan_mode.active !== "boolean") return;
     state.planMode = m.plan_mode as unknown as SDKPlanModeSnapshot;
     debug(`Plan mode changed: active=${state.planMode.active}`);
+  } else if (subtype === "permission_denied") {
+    // A runtime tool call was denied by policy. Without a visible record the
+    // turn silently does less than asked with no explanation, so surface it
+    // as assistant text (provider-executed tools are never host tool calls).
+    const tool = typeof m.tool_name === "string" && m.tool_name.trim() ? m.tool_name.trim() : "tool";
+    const reason = typeof m.message === "string" && m.message.trim()
+      ? m.message.trim()
+      : typeof m.decision_reason === "string" && m.decision_reason.trim()
+        ? m.decision_reason.trim()
+        : "denied by runtime policy";
+    const text = `[Qoder permission denied: ${tool} — ${reason.slice(0, 300)}]`;
+    if (!appendOutput(state, text)) return;
+    const id = String(state.blockCounter++);
+    safeEnqueue(state.controller, { type: "text-start", id });
+    safeEnqueue(state.controller, { type: "text-delta", id, delta: text });
+    safeEnqueue(state.controller, { type: "text-end", id });
   } else if (subtype === "available_models_update" && Array.isArray(m.models)) {
     debug(`Received live available_models_update with ${m.models.length} models`);
     applyLiveModelUpdates(m.models, state.modelEnvironment, state.modelDiscoveryOptions);
-  } else if (subtype === "artifacts_update" && Array.isArray(m.artifacts)) {
-    const incoming = m.artifacts.slice(0, 1_000);
+  } else if (subtype === "artifacts_update" && Array.isArray(m.artifacts)) {    const incoming = m.artifacts.slice(0, 1_000);
     for (const artifact of incoming) {
       if (!isRecord(artifact)) continue;
       const safeArtifact = toJsonValue(artifact);

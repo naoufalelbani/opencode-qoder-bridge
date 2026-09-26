@@ -1,5 +1,31 @@
 # Releasing
 
+> Separate repo, lockstep versions with `pi-qoder-bridge`
+> (`https://github.com/naoufalelbani/pi-qoder-bridge`).
+> Both packages share version numbers and release together (aligned from
+> `0.2.0`). The pi package intentionally stays provider + usage only.
+
+## Lockstep sync contract (port every change in these areas)
+
+1. `@qoder-ai/qoder-agent-sdk` version — identical in both repos (currently
+   pinned `1.0.50`, no caret).
+2. `auth`: PAT env, `.qoderwork` / `.qoder` / `.qoder-cn` login files,
+   region-aware hint wording.
+3. `models`: fallback `lite` / `auto` / `performance` defs, unsafe-id and
+   control-char filtering, 512 cap, discovery timeout.
+4. `usage`: `getUsageInfo()` cache TTL, credential hint wording.
+5. `engines`: same Node range.
+
+Host-specific code is never copied: opencode uses Plugin hooks + AI SDK
+streaming + TUI; pi uses `ExtensionAPI` + `streamSimple`.
+
+State is isolated: opencode defaults to `~/.config/opencode-qoder-bridge`
+(`QODER_BRIDGE_STATE_DIR` override); pi uses `~/.config/pi-qoder-bridge`
+(`PI_QODER_BRIDGE_STATE_DIR` override).
+
+Release both packages at the same version. If only one side changed, still
+bump and publish both so versions never drift.
+
 ## Before a public release
 
 1. Confirm that publishing this integration and using the Qoder name and SDK
@@ -36,6 +62,8 @@ Verify the registry package and install it through OpenCode:
 
 ```bash
 npm view opencode-qoder-bridge
+npm view pi-qoder-bridge
+# both must show the same version
 ```
 
 When validating a clean consumer with npm 12, transitive install scripts may be
