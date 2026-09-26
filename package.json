@@ -1,6 +1,6 @@
 {
   "name": "opencode-qoder-bridge",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "description": "Qoder provider plugin for OpenCode powered by the official Qoder Agent SDK, with streaming, tools, MCP, sessions, multimodal input, and quota tracking.",
   "keywords": [
     "opencode",
@@ -76,17 +76,17 @@
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "1.18.31",
-    "@qoder-ai/qoder-agent-sdk": "^1.0.50",
-    "jsonc-parser": "^3.3.1",
-    "zod": "^4.6.5"
+    "@opencode-ai/plugin": "1.18.32",
+    "@qoder-ai/qoder-agent-sdk": "1.0.50",
+    "jsonc-parser": "3.3.1",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "@ai-sdk/provider": "^4.0.17",
-    "@opentui/solid": "0.5.4",
-    "@types/node": "^26.6.2",
-    "solid-js": "1.9.12",
-    "typescript": "^7.0.2"
+    "@ai-sdk/provider": "4.0.18",
+    "@opentui/solid": "0.5.12",
+    "@types/node": "26.6.3",
+    "solid-js": "1.9.15",
+    "typescript": "7.0.2"
   },
   "peerDependencies": {
     "@opentui/solid": ">=0.4.5",
@@ -114,8 +114,8 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "allowScripts": {
-    "msgpackr-extract@3.0.4": true,
-    "@qoder-ai/qoder-agent-sdk@1.0.50": true
+    "@qoder-ai/qoder-agent-sdk@1.0.50": true,
+    "msgpackr-extract@3.0.4": true
   },
   "directories": {
     "test": "test"

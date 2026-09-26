@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.25] - 2026-09-26
+
+### Changed
+
+- Updated direct dependencies to latest stable versions: Qoder Agent SDK
+  1.0.50, `@opencode-ai/plugin` 1.18.32, `@ai-sdk/provider` 4.0.18,
+  `@opentui/solid` 0.5.12, `solid-js` 1.9.15, `@types/node` 26.6.3,
+  `zod` 4.6.5, `jsonc-parser` 3.3.1, and TypeScript 7.0.2.
+- Synchronized the Qoder SDK script-approval entry with version 1.0.50.
+
+### Fixed
+
+- Refreshed the lockfile and release metadata for the tested dependency set.
+
+### Validation
+
+- Typecheck, full check, stress tests, audit, package dry-run, and generated
+  output checks passed.
+- Full tests: 154 passed, 0 failed, 2 skipped.
+- Stress tests: 13 passed, 0 failed, 1 skipped.
+- Authenticated Qoder E2E was skipped because credentials were unavailable.
+- Latest OpenTUI declares Node `>=26.4.0` and an exact Solid peer; npm needed
+  legacy-peer resolution in the Node 22 validation environment. No package was
+  held back; the complete suite passed on the installed versions.
+
 ## [0.1.24] - 2026-09-25
 
 ### Added
@@ -118,7 +143,6 @@ All notable changes to this project are documented here. The format follows
 - Typecheck and build passed.
 - npm audit: 0 vulnerabilities.
 - Authenticated E2E remains dependent on available Qoder credentials.
-
 ## [0.1.16] - 2026-09-19
 
 ### Added
