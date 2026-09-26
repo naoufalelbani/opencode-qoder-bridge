@@ -1,6 +1,6 @@
 {
   "name": "opencode-qoder-bridge",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "description": "Qoder provider plugin for OpenCode powered by the official Qoder Agent SDK, with streaming, tools, MCP, sessions, multimodal input, and quota tracking.",
   "keywords": [
     "opencode",
@@ -85,7 +85,7 @@
     "@ai-sdk/provider": "4.0.18",
     "@opentui/solid": "0.5.12",
     "@types/node": "26.6.3",
-    "solid-js": "1.9.15",
+    "solid-js": "1.9.12",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
