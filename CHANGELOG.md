@@ -17,7 +17,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Refreshed the lockfile and release metadata for the tested dependency set.
+- Corrected the tracked-file credential scan to avoid treating documented
+  `qoder_session_*` command names as credential values.
 
 ### Validation
 
