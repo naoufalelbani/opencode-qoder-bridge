@@ -76,7 +76,7 @@
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "1.18.32",
+    "@opencode-ai/plugin": "1.18.34",
     "@qoder-ai/qoder-agent-sdk": "1.0.50",
     "jsonc-parser": "3.3.1",
     "zod": "4.6.5"
