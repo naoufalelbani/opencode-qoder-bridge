@@ -7,7 +7,7 @@
  */
 export declare function normalizeToolName(name: string): string;
 /** Normalize a parsed tool-input object for the given (already normalized) tool name. */
-export declare function normalizeToolInput(toolName: string, input: unknown): unknown;
+export declare function normalizeToolInput(toolName: string, input: unknown, hostKeys?: ReadonlySet<string>): unknown;
 /** Parse a JSON input string, normalize, and re-serialize. Falls back to the original on parse error. */
-export declare function normalizeToolInputString(toolName: string, input: string): string;
+export declare function normalizeToolInputString(toolName: string, input: string, hostKeys?: ReadonlySet<string>): string;
 //# sourceMappingURL=tool-normalizer.d.ts.map

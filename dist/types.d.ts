@@ -19,6 +19,8 @@ export interface QoderModelDef {
     };
 }
 export interface QoderBridgeOptions {
+    /** Hide the Qoder CLI and personal-token login methods in OpenCode 2. */
+    disableQoderCliLogin?: boolean;
     /** Internal test seam; JSON/OpenCode configuration cannot provide functions. */
     query?: (input: {
         prompt: unknown;

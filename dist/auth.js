@@ -32,7 +32,7 @@ export function regionPreference(environment = process.env) {
 export function cliLoginHint(environment = process.env) {
     return regionPreference(environment) === "cn"
         ? "Run the CN CLI login or set QODER_PERSONAL_ACCESS_TOKEN."
-        : "Run `qoder login` (CN region: the CN CLI login) or set QODER_PERSONAL_ACCESS_TOKEN.";
+        : "Run `opencode auth login -p qoder` for browser sign-in, run `qoder login`, or set QODER_PERSONAL_ACCESS_TOKEN.";
 }
 function isRegularFile(p) {
     try {

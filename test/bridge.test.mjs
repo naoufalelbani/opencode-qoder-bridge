@@ -343,6 +343,22 @@ describe("tool-normalizer", () => {
     assert.deepEqual(normalizeToolInput("write", { path: "src/out.ts" }), { filePath: "src/out.ts" });
     assert.deepEqual(normalizeToolInput("bash", { cmd: "npm test" }), { command: "npm test" });
   });
+
+  test("uses the host file-tool path key for OpenCode 2", () => {
+    const hostKeys = new Set(["path", "offset", "limit"]);
+    assert.deepEqual(normalizeToolInput("read", { file_path: "src/main.ts", limit: 10 }, hostKeys), {
+      path: "src/main.ts", limit: 10,
+    });
+    assert.deepEqual(normalizeToolInput("write", { filePath: "src/out.ts", content: "x" }, hostKeys), {
+      path: "src/out.ts", content: "x",
+    });
+    assert.deepEqual(normalizeToolInput("edit", { file_path: "src/main.ts", old_string: "a", new_string: "b" }, hostKeys), {
+      path: "src/main.ts", oldString: "a", newString: "b",
+    });
+    assert.deepEqual(normalizeToolInput("read", { path: "src/main.ts" }, new Set(["filePath"])), {
+      filePath: "src/main.ts",
+    });
+  });
 });
 
 describe("prompt-builder", () => {
@@ -641,14 +657,21 @@ describe("models", () => {
 });
 
 describe("plugin config hook", () => {
-  test("package root exports only the plugin function", async () => {
+  test("package root exports the dual V1/V2 entry point", async () => {
     const entry = await import(DIST + "index.js");
     assert.deepEqual(Object.keys(entry), ["default"]);
-    assert.equal(typeof entry.default, "function");
+    const plugin = entry.default;
+    assert.equal(typeof plugin, "object");
+    assert.equal(plugin.id, "opencode-qoder-bridge");
+    // OpenCode 1 reads `server`; OpenCode 2 reads `id` + `setup`.
+    assert.equal(typeof plugin.server, "function");
+    assert.equal(typeof plugin.setup, "function");
+    // OpenCode 1 refuses a module that exports both `server` and `tui`.
+    assert.equal(plugin.tui, undefined);
   });
 
   test("sets npm field to provider.js URL", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     const config = {};
     await instance.config(config);
@@ -660,7 +683,7 @@ describe("plugin config hook", () => {
   });
 
   test("sets provider name to Qoder", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     const config = {};
     await instance.config(config);
@@ -668,7 +691,7 @@ describe("plugin config hook", () => {
   });
 
   test("registers builtin models", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     const config = {};
     await instance.config(config);
@@ -677,7 +700,7 @@ describe("plugin config hook", () => {
   });
 
   test("preserves user-defined models", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     const config = {
       provider: {
@@ -693,7 +716,7 @@ describe("plugin config hook", () => {
   });
 
   test("bridges MCP servers from config.mcp", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     const config = {
       mcp: {
@@ -706,7 +729,7 @@ describe("plugin config hook", () => {
   });
 
   test("auth section is present", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     assert.ok(instance.auth);
     assert.equal(instance.auth.provider, "qoder");
@@ -714,19 +737,19 @@ describe("plugin config hook", () => {
   });
 
   test("tool section has qoder_usage", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     assert.ok(instance.tool.qoder_usage);
   });
 
   test("tool section has qoder_models", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     assert.ok(instance.tool.qoder_models);
   });
 
   test("tool section has qoder_sessions and qoder_plan_mode", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     assert.ok(instance.tool.qoder_sessions);
     assert.ok(instance.tool.qoder_plan_mode);
@@ -737,7 +760,7 @@ describe("plugin config hook", () => {
   });
 
   test("tool section has MCP controls and session fork", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     assert.ok(instance.tool.qoder_mcp_status);
     assert.ok(instance.tool.qoder_mcp_auth);
@@ -749,7 +772,7 @@ describe("plugin config hook", () => {
   });
 
   test("qoder_session_reset handles key parameter, 'all', and unconfigured session", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
     assert.ok(instance.tool.qoder_session_reset);
 
@@ -767,7 +790,7 @@ describe("plugin config hook", () => {
   });
 
   test("does not inject model-backed slash commands into server config", async () => {
-    const plugin = (await import(DIST + "index.js")).default;
+    const plugin = (await import(DIST + "index.js")).default.server;
     const instance = await plugin();
 
     const config = {

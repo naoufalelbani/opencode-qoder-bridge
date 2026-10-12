@@ -5,10 +5,35 @@
 > Both packages share version numbers and release together (aligned from
 > `0.2.0`). The pi package intentionally stays provider + usage only.
 
+## 0.3.0 release status
+
+The browser URL sign-in path now exchanges a Qoder device token for a job
+token and passes it to the Qoder Agent SDK. The SDK remains the model and
+agent runtime. PAT and CLI-login options remain available.
+
+Validation completed on Node 24.19.0: OpenCode bridge typecheck and 204 tests
+passed (2 skipped), stress tests are included, npm audit is clean, and the
+package dry run contains the OpenCode 2 entrypoints. OpenCode 2.0.26 loaded the
+provider and model catalog; inference reached the Qoder transport but this
+environment could not connect to the endpoint. The authenticated SDK E2E
+passed with the existing Qoder CLI login.
+
+The live browser OAuth check remains outstanding. The test authorization URL
+expired before it was approved, so refresh, streaming, quota, and logout with
+a browser credential have not been verified against a real account. The SDK
+1.0.51 `jobToken()` callback is marked internal for first-party hosts; recheck
+it when upgrading the SDK. The Pi package typecheck, build, package dry run,
+and production dependency audit pass. Its development-only Pi host shrinkwrap
+still includes one high `brace-expansion` advisory; a compatible Pi host
+version that fixes it changes APIs used by this extension.
+Shared credential detection and region-aware login hints are synchronized
+with `pi-qoder-bridge`; Pi uses its own `/login qoder` flow while OpenCode
+uses its OAuth hook for browser URL sign-in.
+
 ## Lockstep sync contract (port every change in these areas)
 
 1. `@qoder-ai/qoder-agent-sdk` version — identical in both repos (currently
-   pinned `1.0.50`, no caret).
+   pinned `1.0.51`, no caret).
 2. `auth`: PAT env, `.qoderwork` / `.qoder` / `.qoder-cn` login files,
    region-aware hint wording.
 3. `models`: fallback `lite` / `auto` / `performance` defs, unsafe-id and
@@ -52,9 +77,11 @@ npm publish --access public
 ```
 
 The end-to-end gate is mandatory for any release that touches
-`src/language-model.ts`, `src/models.ts`, or `src/usage.ts`: unit tests mock
-the SDK, so only `QODER_E2E=1` exercises real streaming, tool calls, provider
-metadata, and live model discovery. Verify before publishing that the dry-run
+`src/language-model.ts`, `src/models.ts`, `src/usage.ts`, `src/sdk-auth.ts`,
+`src/device-sign-in.ts`, or `src/opencode-auth-store.ts`: unit tests mock
+the SDK or Qoder's sign-in endpoints, so only authenticated runs exercise real
+streaming, tool calls, token refresh, provider metadata, and model discovery.
+Verify before publishing that the dry-run
 tarball contains `dist/` (including `errors.js`, `logger.js`,
 `state-dir.js`) and both `bin/` scripts, and nothing else unexpected.
 
@@ -71,7 +98,7 @@ blocked by the consumer's policy. Approve the SDK script and rebuild it when
 the bundled Worker runtime is required:
 
 ```bash
-npm install-scripts approve @qoder-ai/qoder-agent-sdk@1.0.31
+npm install-scripts approve @qoder-ai/qoder-agent-sdk@1.0.51
 npm rebuild @qoder-ai/qoder-agent-sdk
 ```
 

@@ -142,3 +142,33 @@ export function bridgeMcpServers(mcp: unknown): Record<string, McpServerConfig> 
   }
   return out;
 }
+
+/** OpenCode 2 expresses one server as `{ type: "local" | "remote", ... }`. */
+function convertV2Entry(raw: unknown): McpServerConfig | null {
+  if (!isRecord(raw) || raw.disabled === true) return null;
+  if (raw.type === "local") return convertEntry({ type: "stdio", command: raw.command, environment: raw.environment });
+  if (raw.type === "remote") return convertEntry({ type: "http", url: raw.url, headers: raw.headers });
+  return convertEntry(raw);
+}
+
+/**
+ * Bridge OpenCode 2's resolved `ctx.mcp` editor entries into SDK `mcpServers`.
+ * Disabled and unrecognized entries are dropped.
+ */
+export function bridgeMcpServersV2(
+  entries: ReadonlyArray<readonly [string, unknown]>,
+): Record<string, McpServerConfig> {
+  const out: Record<string, McpServerConfig> = {};
+  let count = 0;
+  for (const entry of entries) {
+    if (count >= MAX_MCP_SERVERS) break;
+    const name = entry[0];
+    if (UNSAFE_KEYS.has(name) || name.length === 0 || name.length > 256 || CONTROL_CHARS.test(name)) continue;
+    const cfg = convertV2Entry(entry[1]);
+    if (cfg) {
+      out[name] = cfg;
+      count++;
+    }
+  }
+  return out;
+}

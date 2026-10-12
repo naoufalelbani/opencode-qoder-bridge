@@ -17,6 +17,7 @@ interface StreamState {
     controller: StreamController;
     contextWindow: number;
     functionToolNames: Set<string>;
+    toolInputKeys?: Map<string, ReadonlySet<string>>;
     activeText: Set<number>;
     activeReasoning: Set<number>;
     toolBlocks: Map<number, {

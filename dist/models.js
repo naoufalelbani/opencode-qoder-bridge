@@ -1,7 +1,7 @@
 import { query } from "@qoder-ai/qoder-agent-sdk";
 import { findQoderCLI, getQoderRegion } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
-import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
+import { browserAuthIdentity, hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -217,9 +217,12 @@ function fingerprint(value) {
  */
 function catalogScope(environment, options) {
     const token = environment.QODER_PERSONAL_ACCESS_TOKEN?.trim();
+    const browser = browserAuthIdentity(environment);
+    const authType = qoderAuth(environment)?.type;
     const authScope = token
         ? `pat:${fingerprint(token)}`
-        : hasQoderCredential(environment) ? "local-login" : "anonymous";
+        : authType === "jobToken" && browser ? `browser:${fingerprint(browser)}`
+            : hasQoderCredential(environment) ? "local-login" : "anonymous";
     // Global and CN installs must not share a cached catalog: the CLI binary
     // name (qodercli vs qoderclicn) plus the region preference isolate them.
     const cliPath = findQoderCLI();

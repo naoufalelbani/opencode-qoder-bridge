@@ -1,20 +1,20 @@
 import { jsx, jsxs } from "@opentui/solid/jsx-runtime";
 import { createEffect, Show, createSignal } from "solid-js";
 import { getLiveUsage } from "./usage.js";
-import { debug, describeError } from "./logger.js";
+import { debug, describeError, warn } from "./logger.js";
 import { mergedEnvironment } from "./environment.js";
 import { closeAllPendingMcpAuth, executeQoderCommand, QODER_COMMANDS, } from "./command-actions.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 const REFRESH_MS = 30_000;
 const POST_TURN_REFRESH_MS = 5_000;
 const MIN_REFRESH_GAP_MS = 5_000;
-function formatCredits(value) {
+export function formatCredits(value) {
     const safe = Number.isFinite(value) && value >= 0 ? value : 0;
     return Number.isInteger(safe)
         ? safe.toString()
         : safe.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
-function formatSessionCredits(value) {
+export function formatSessionCredits(value) {
     return (Number.isFinite(value) && value >= 0 ? value : 0).toFixed(2);
 }
 /**
@@ -47,7 +47,7 @@ function usesQoder(api, sessionID) {
             : latest.providerID === "qoder";
     });
 }
-function formatQuota(usage) {
+export function formatQuota(usage) {
     const quota = usage?.userQuota;
     if (!usage || !quota || typeof quota.total !== "number" || !Number.isFinite(quota.total) || quota.total < 0) {
         return {
@@ -116,7 +116,7 @@ function hasEntries(value) {
  * OpenCode command palette. `hidden` is intentionally separate from
  * `enabled`: hidden commands are not disabled.
  */
-function shouldHideCommand(command, context) {
+export function shouldHideCommand(command, context) {
     const options = isRecord(context.configuredBridgeOptions)
         ? context.configuredBridgeOptions
         : {};
@@ -417,5 +417,36 @@ export const tui = async (api) => {
         },
     });
 };
-export default { id, tui };
+const ACTIVATION_KEY = Symbol.for("opencode-qoder-bridge.sidebar.activation");
+const activation = (globalThis[ACTIVATION_KEY] ??= {
+    active: false,
+});
+/**
+ * OpenCode 2 entry point. The V2 sidebar lives in `tui-v2.ts` so OpenCode 1
+ * never evaluates the V2 plugin package; the guard keeps one sidebar alive when
+ * OpenCode 2 hands this module to both the CLI-plugin loader and the migrated
+ * `tui.json` entry.
+ */
+export async function setup(context) {
+    if (activation.active) {
+        debug("Qoder sidebar is already active; ignoring a duplicate load.");
+        return undefined;
+    }
+    activation.active = true;
+    try {
+        const v2 = await import("./tui-v2.js");
+        const cleanup = await v2.tui.setup(context);
+        return () => {
+            activation.active = false;
+            return cleanup?.();
+        };
+    }
+    catch (error) {
+        activation.active = false;
+        warn("Could not start the Qoder sidebar:", error);
+        return undefined;
+    }
+}
+const entry = { id, tui, setup };
+export default entry;
 //# sourceMappingURL=tui.js.map

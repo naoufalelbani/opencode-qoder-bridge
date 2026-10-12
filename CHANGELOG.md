@@ -8,6 +8,51 @@ Lockstep policy: `opencode-qoder-bridge` and `pi-qoder-bridge` (separate repo)
 share version numbers and release together. `0.2.0` is the first aligned
 release. The pi package intentionally stays provider + usage only.
 
+## [0.3.0] - 2026-10-12
+
+### Added
+
+- Browser URL sign-in for qoder.com accounts through OpenCode's OAuth hook.
+  The device flow exchanges for a refreshable job token, which the bridge
+  supplies to the Qoder Agent SDK; inference and agent features stay on the
+  SDK runtime. PAT and Qoder CLI sign-in remain available.
+- Live SDK model discovery after a saved browser sign-in loads.
+- OpenCode 2 support alongside OpenCode 1 from one package. The root entry point
+  now exposes `id` + `setup` for OpenCode 2 and keeps the `server` hook for
+  OpenCode 1; OpenCode 2 never evaluates the V1 plugin package. OpenCode 2 users
+  configure options with `plugins: [{ package, options }]` or
+  `providers.qoder.settings`, declare the provider with `activation: "enabled"`
+  and the `aisdk:@ai-sdk/openai-compatible` adapter, publish the model catalog
+  through `ctx.provider.transform`, and replace its language model through
+  `ctx.aisdk.hook("language")` with the Qoder SDK-backed model. Register the
+  `qoder_*` tools through
+  `ctx.tool.transform`, and sign in through the `qoder` integration's OAuth,
+  environment, and command methods. The bundled sidebar is ported to OpenCode
+  2's TUI plugin contract and guarded so a migrated `tui.json` entry cannot
+  render a second copy.
+
+### Changed
+
+- Prefer an existing Qoder CLI login for SDK requests, matching the faster
+  native CLI authentication path. Browser URL sign-in remains the fallback and
+  can be selected with `QODER_AUTH_MODE=browser` when both logins exist.
+- Match OpenCode's declared file-tool path key when forwarding Qoder tool calls,
+  fixing `Read` calls that failed with `path: Missing key` on OpenCode 2.
+- OpenCode 2 now publishes cached/fallback models before starting live catalog
+  discovery in the background, so a slow Qoder catalog lookup does not hold up
+  plugin startup.
+- Updated the Qoder Agent SDK to 1.0.51 in both bridge packages. Updated
+  OpenCode, AI SDK, OpenTUI, Zod, Node types, and transitive security pins.
+  Kept `solid-js` at 1.9.12 for OpenTUI's exact peer and pinned patched
+  `seroval` 1.6.9 to clear the dependency audit.
+
+### Validation
+
+- Authenticated SDK E2E completed with an existing Qoder CLI login on Node
+  24.19.0. Browser OAuth account authorization and refresh still need a live
+  OpenCode sign-in check before publishing; the SDK's `jobToken()` callback is
+  marked internal in version 1.0.51.
+
 ## [0.2.0] - 2026-09-26
 
 First lockstep release aligned with `pi-qoder-bridge@0.2.0` (separate repo).

@@ -1,14 +1,18 @@
 import { type Hooks, type Config, type Plugin, tool } from "@opencode-ai/plugin";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels } from "./models.js";
 import type { DynamicModelEntry, ModelDiscoveryOptions } from "./models.js";
-import { hasQoderCredential, QODER_PAT_ENV } from "./sdk-auth.js";
-import { cliLoginHint } from "./auth.js";
+import { configureBrowserAuth, hasQoderPAT, QODER_PAT_ENV } from "./sdk-auth.js";
+import type { BrowserCredential } from "./sdk-auth.js";
+import { qoderDeviceSignIn } from "./device-sign-in.js";
+import { cliLoginHint, isAuthenticated } from "./auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { ensureTuiRegistered } from "./tui-register.js";
 import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
-import { mergedEnvironment } from "./environment.js";
+import {
+  isRecord,
+  MODEL_STARTUP_DISCOVERY_TIMEOUT_MS,
+  normalizeBridgeSettings,
+} from "./bridge-options.js";
 import {
   runQoderMcpAuth,
   runQoderMcpStatus,
@@ -24,48 +28,12 @@ import type { QoderBridgeOptions } from "./types.js";
 
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
-const MODEL_STARTUP_DISCOVERY_TIMEOUT_MS = 10_000;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function safeDisplay(value: unknown, fallback: string, maxLength = 512): string {
   if (typeof value !== "string" || !value) return fallback;
   const clean = value.replace(CONTROL_CHARS, " ").slice(0, maxLength);
   return clean || fallback;
-}
-
-function discoveryEnvironment(value: unknown): Record<string, string | undefined> {
-  return isRecord(value) ? mergedEnvironment(value as Record<string, string | undefined>) : mergedEnvironment();
-}
-
-function discoveryOptions(options: Record<string, unknown>): ModelDiscoveryOptions {
-  const result: ModelDiscoveryOptions = { timeoutMs: MODEL_STARTUP_DISCOVERY_TIMEOUT_MS };
-  if (typeof options.proxy === "string" && options.proxy.trim()) result.proxy = options.proxy;
-  if (typeof options.vpcEndpoint === "string" && options.vpcEndpoint.trim()) result.vpcEndpoint = options.vpcEndpoint;
-  if (typeof options.cwd === "string" && options.cwd.trim()) result.cwd = options.cwd;
-  return result;
-}
-
-function warnOnUnsafeOptions(options: Record<string, unknown>, cwd: string): void {
-  const inactivity = typeof options.timeoutMs === "number" ? options.timeoutMs : 30 * 60 * 1000;
-  const maximum = typeof options.maxDurationMs === "number" ? options.maxDurationMs : 2 * 60 * 60 * 1000;
-  if (Number.isFinite(inactivity) && Number.isFinite(maximum) && maximum < inactivity) {
-    warn("Qoder maxDurationMs is shorter than timeoutMs; the absolute limit will win");
-  }
-  if (options.permissionMode === "bypassPermissions") {
-    warn("Qoder bypassPermissions is enabled; review this workspace before allowing model actions");
-  }
-  if (options.sessionPersistence === true && typeof options.sessionKey !== "string") {
-    warn("Qoder sessionPersistence is enabled without a sessionKey; persistence will be unavailable");
-  }
-  try {
-    if (!existsSync(resolve(cwd))) warn(`Qoder workspace does not exist: ${cwd}`);
-  } catch {
-    warn(`Qoder workspace could not be validated: ${cwd}`);
-  }
 }
 
 function buildFallbackEntry(m: (typeof FALLBACK_MODELS)[number]) {
@@ -115,6 +83,24 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
 
   const pendingMcpAuth = new Map<string, PendingMcpAuth>();
 
+  const saveBrowserCredential = async (credential: BrowserCredential): Promise<void> => {
+    if (!input) throw new Error("OpenCode is required to save Qoder browser credentials");
+    const result = await input.client.auth.set({ path: { id: "qoder" }, body: credential });
+    if (result.error) throw new Error("OpenCode could not save the refreshed Qoder sign-in");
+  };
+
+  const bindBrowserCredential = (
+    initial: BrowserCredential,
+    read: () => Promise<BrowserCredential | null>,
+  ): void => {
+    if (!input) return;
+    configureBrowserAuth({
+      accountId: initial.accountId,
+      read,
+      write: saveBrowserCredential,
+    });
+  };
+
   const commandContext = (): QoderCommandContext => ({
     configuredCwd,
     ...(configuredSessionKey ? { configuredSessionKey } : {}),
@@ -142,18 +128,26 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
       config.provider ??= {};
       const existing = isRecord(config.provider.qoder) ? config.provider.qoder : {};
       const existingOptions = isRecord(existing.options) ? existing.options : {};
-      const environment = discoveryEnvironment(existingOptions.env);
-      const discoveryConfig = discoveryOptions(existingOptions);
-      modelEnvironment = environment;
-      modelOptions = discoveryConfig;
+      const bridgedMcp = bridgeMcpServers((config as Record<string, unknown>).mcp);
+      const normalized = normalizeBridgeSettings({
+        existing: existingOptions,
+        ...(workspaceCwd ? { workspaceCwd } : {}),
+        mcpServers: bridgedMcp,
+      });
+      modelEnvironment = normalized.environment;
+      modelOptions = normalized.discovery;
+      configuredCwd = normalized.cwd;
+      configuredSessionKey = normalized.sessionKey;
+      configuredSessionId = normalized.sessionId;
+      configuredBridgeOptions = normalized.settings;
 
       // OpenCode snapshots provider models while this hook runs. Complete one
       // bounded live discovery before returning so a fresh install exposes the
       // current account catalog immediately; retain cache/fallback behavior if
       // Qoder is offline, unauthenticated, or slower than the startup budget.
-      let dynamic = getCachedDynamicModels(environment, discoveryConfig);
+      let dynamic = getCachedDynamicModels(modelEnvironment, modelOptions);
       try {
-        const refreshed = await fetchDynamicModels(true, environment, discoveryConfig);
+        const refreshed = await fetchDynamicModels(true, modelEnvironment, modelOptions);
         if (refreshed) dynamic = refreshed;
       } catch (error) {
         debug("Startup model discovery unavailable; using cached/fallback models:", describeError(error));
@@ -173,44 +167,41 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
       const existingModels = isRecord(existing.models) ? existing.models : {};
       const mergedModels = { ...builtinModels, ...existingModels };
 
-      const bridgedMcp = bridgeMcpServers((config as Record<string, unknown>).mcp);
-      const mergedOptions: Record<string, unknown> = { ...existingOptions };
-      if (workspaceCwd && (typeof mergedOptions.cwd !== "string" || !mergedOptions.cwd.trim())) {
-        mergedOptions.cwd = workspaceCwd;
-      }
-      if (typeof mergedOptions.cwd === "string" && mergedOptions.cwd.trim()) configuredCwd = mergedOptions.cwd;
-      configuredSessionKey = typeof mergedOptions.sessionKey === "string" ? mergedOptions.sessionKey : undefined;
-      configuredSessionId = typeof mergedOptions.sessionId === "string" ? mergedOptions.sessionId : undefined;
-      warnOnUnsafeOptions(mergedOptions, configuredCwd);
-      if (Object.keys(bridgedMcp).length > 0) {
-        mergedOptions.mcpServers = {
-          ...(isRecord(existingOptions.mcpServers) ? existingOptions.mcpServers : {}),
-          ...bridgedMcp,
-        };
-      }
-      configuredBridgeOptions = mergedOptions as QoderBridgeOptions;
-
       config.provider.qoder = {
         ...existing,
         npm: existing.npm ?? PROVIDER_URL,
         name: existing.name ?? "Qoder",
-        options: mergedOptions,
+        options: normalized.settings,
         models: mergedModels,
       } as Config["provider"] extends infer T ? T[keyof T] : never;
     },
 
     auth: {
       provider: "qoder",
-      async loader() {
+      async loader(getAuth) {
+        const saved = await getAuth();
+        if (saved?.type === "oauth") {
+          bindBrowserCredential(saved, async () => {
+            const current = await getAuth();
+            return current?.type === "oauth" ? current : null;
+          });
+        } else {
+          configureBrowserAuth(null);
+        }
         return {};
       },
       methods: [
+        {
+          type: "oauth",
+          label: "Sign in with Qoder (qoder.com) in your browser",
+          authorize: qoderDeviceSignIn,
+        },
         {
           type: "api",
           label: `Use ${QODER_PAT_ENV} or run qoder login in your terminal (CN region: the CN CLI login)`,
           prompts: [],
           async authorize() {
-            if (!hasQoderCredential()) {
+            if (!hasQoderPAT() && !isAuthenticated()) {
               warn(
                 "Authorize failed: no usable Qoder credential found.",
                 `${cliLoginHint()}, then retry.`,
@@ -221,6 +212,54 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
           },
         },
       ],
+    },
+
+    provider: {
+      id: "qoder",
+      async models(provider, { auth }) {
+        if (auth?.type !== "oauth" || !input) {
+          configureBrowserAuth(null);
+          return provider.models;
+        }
+        let current: BrowserCredential = auth;
+        // The model hook runs after the config hook, when the saved browser
+        // credential is available. Discover the live catalog through the SDK.
+        configureBrowserAuth({
+          accountId: auth.accountId,
+          read: async () => current,
+          write: async (credential) => {
+            await saveBrowserCredential(credential);
+            current = credential;
+          },
+        });
+        const dynamic = await fetchDynamicModels(true, modelEnvironment, modelOptions);
+        if (!dynamic?.length) return provider.models;
+        const fallback = provider.models.auto ?? Object.values(provider.models)[0];
+        if (!fallback) return provider.models;
+        return {
+          ...provider.models,
+          ...Object.fromEntries(dynamic.map((model) => {
+            const previous = provider.models[model.id] ?? fallback;
+            return [model.id, {
+              ...previous,
+              id: model.id,
+              name: model.name,
+              limit: model.limit,
+              cost: {
+                input: model.cost.input,
+                output: model.cost.output,
+                cache: { read: model.cost.cache_read, write: model.cost.cache_write },
+              },
+              capabilities: {
+                ...previous.capabilities,
+                reasoning: model.reasoning,
+                attachment: model.attachment,
+                toolcall: model.toolCall,
+              },
+            }];
+          })),
+        };
+      },
     },
 
     tool: {
@@ -299,4 +338,27 @@ const plugin: Plugin = async (input): Promise<Hooks> => {
   };
 };
 
-export default plugin;
+/**
+ * One entry point serves both plugin generations.
+ *
+ * OpenCode 1 loads `default.server` (and requires that a module exporting both
+ * `server` and `tui` never happens). OpenCode 2 reads `id` plus `setup` and
+ * ignores `server`. The V2 implementation is imported lazily so OpenCode 1
+ * never evaluates the V2 plugin package.
+ */
+interface DualEntryPoint {
+  readonly id: string;
+  readonly setup: (context: unknown) => Promise<unknown>;
+  readonly server: Plugin;
+}
+
+const entryPoint: DualEntryPoint = {
+  id: "opencode-qoder-bridge",
+  async setup(context) {
+    const v2 = await import("./v2.js");
+    return v2.setup(context as Parameters<typeof v2.setup>[0]);
+  },
+  server: plugin,
+};
+
+export default entryPoint;

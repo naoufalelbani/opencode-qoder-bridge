@@ -216,7 +216,10 @@ describe("result metadata shape", () => {
   });
 
   test("replaces eager empty tool input when Qoder streams the complete object", () => {
-    const { parts, state } = makeState({ functionToolNames: new Set(["read"]) });
+    const { parts, state } = makeState({
+      functionToolNames: new Set(["read"]),
+      toolInputKeys: new Map([["read", new Set(["path", "offset", "limit"])]]),
+    });
     handleSdkMessage({
       type: "stream_event",
       event: {
@@ -236,7 +239,7 @@ describe("result metadata shape", () => {
     handleSdkMessage({ type: "stream_event", event: { type: "content_block_stop", index: 0 } }, state);
 
     const toolCall = parts.find((part) => part.type === "tool-call");
-    assert.equal(toolCall?.input, '{"filePath":"/tmp/example.ts"}');
+    assert.equal(toolCall?.input, '{"path":"/tmp/example.ts"}');
     assert.equal(parts.find((part) => part.type === "error"), undefined);
   });
 
@@ -788,6 +791,29 @@ describe("injected SDK transport", () => {
     assert.deepEqual(result.content, [{ type: "text", text: "hello" }]);
   });
 
+  test("emits the file key required by the host tool schema", async () => {
+    const messages = [
+      { type: "assistant", message: { content: [
+        { type: "tool_use", id: "read-v2", name: "Read", input: { file_path: "src/models.ts", limit: 20 } },
+      ] } },
+      { type: "result", subtype: "success", result: "", usage: {} },
+    ];
+    const lm = new QoderLanguageModel("auto", {
+      env: { QODER_PERSONAL_ACCESS_TOKEN: "pt-injected-test" },
+      query: () => fakeQuery(messages),
+    });
+    const result = await lm.doGenerate({
+      prompt: [{ role: "user", content: [{ type: "text", text: "read models" }] }],
+      tools: [{ type: "function", name: "read", inputSchema: {
+        type: "object", properties: { path: { type: "string" }, limit: { type: "number" } }, required: ["path"],
+      } }],
+    });
+    const call = result.content.find((part) => part.type === "tool-call");
+    assert.equal(call?.toolCallId, "read-v2");
+    assert.equal(call?.toolName, "read");
+    assert.deepEqual(JSON.parse(call.input), { path: "src/models.ts", limit: 20 });
+  });
+
   test("classifies an injected transport failure without leaking credentials", async () => {
     const lm = new QoderLanguageModel("auto", {
       env: { QODER_PERSONAL_ACCESS_TOKEN: "pt-injected-test" },
@@ -991,7 +1017,7 @@ describe("model catalog selection", () => {
       return query;
     });
     try {
-      const plugin = (await import(DIST + "index.js")).default;
+      const plugin = (await import(DIST + "index.js")).default.server;
       const instance = await plugin();
       const config = {
         provider: {

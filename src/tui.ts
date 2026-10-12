@@ -2,7 +2,7 @@ import type { TuiCommand, TuiDialogStack, TuiPlugin, TuiPluginModule } from "@op
 import { jsx, jsxs } from "@opentui/solid/jsx-runtime";
 import { createEffect, Show, createSignal } from "solid-js";
 import { getLiveUsage } from "./usage.js";
-import { debug, describeError } from "./logger.js";
+import { debug, describeError, warn } from "./logger.js";
 import { mergedEnvironment } from "./environment.js";
 import {
   closeAllPendingMcpAuth,
@@ -17,7 +17,7 @@ const REFRESH_MS = 30_000;
 const POST_TURN_REFRESH_MS = 5_000;
 const MIN_REFRESH_GAP_MS = 5_000;
 
-type QuotaView = {
+export type QuotaView = {
   used?: number;
   total?: number;
   remaining?: number;
@@ -26,14 +26,14 @@ type QuotaView = {
   warning: boolean;
 };
 
-function formatCredits(value: number): string {
+export function formatCredits(value: number): string {
   const safe = Number.isFinite(value) && value >= 0 ? value : 0;
   return Number.isInteger(safe)
     ? safe.toString()
     : safe.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
-function formatSessionCredits(value: number): string {
+export function formatSessionCredits(value: number): string {
   return (Number.isFinite(value) && value >= 0 ? value : 0).toFixed(2);
 }
 
@@ -67,7 +67,7 @@ function usesQoder(api: Parameters<TuiPlugin>[0], sessionID: string | undefined)
   });
 }
 
-function formatQuota(usage: Awaited<ReturnType<typeof getLiveUsage>>): QuotaView {
+export function formatQuota(usage: Awaited<ReturnType<typeof getLiveUsage>>): QuotaView {
   const quota = usage?.userQuota;
   if (!usage || !quota || typeof quota.total !== "number" || !Number.isFinite(quota.total) || quota.total < 0) {
     return {
@@ -163,7 +163,7 @@ function hasEntries(value: unknown): boolean {
  * OpenCode command palette. `hidden` is intentionally separate from
  * `enabled`: hidden commands are not disabled.
  */
-function shouldHideCommand(
+export function shouldHideCommand(
   command: (typeof QODER_COMMANDS)[number],
   context: QoderCommandContext,
 ): boolean {
@@ -493,4 +493,41 @@ export const tui: TuiPlugin = async (api) => {
   });
 };
 
-export default { id, tui } satisfies TuiPluginModule;
+const ACTIVATION_KEY = Symbol.for("opencode-qoder-bridge.sidebar.activation");
+
+interface SidebarActivation {
+  active: boolean;
+}
+
+const activation: SidebarActivation = ((globalThis as Record<symbol, SidebarActivation>)[ACTIVATION_KEY] ??= {
+  active: false,
+});
+
+/**
+ * OpenCode 2 entry point. The V2 sidebar lives in `tui-v2.ts` so OpenCode 1
+ * never evaluates the V2 plugin package; the guard keeps one sidebar alive when
+ * OpenCode 2 hands this module to both the CLI-plugin loader and the migrated
+ * `tui.json` entry.
+ */
+export async function setup(context: unknown): Promise<(() => Promise<void> | void) | void> {
+  if (activation.active) {
+    debug("Qoder sidebar is already active; ignoring a duplicate load.");
+    return undefined;
+  }
+  activation.active = true;
+  try {
+    const v2 = await import("./tui-v2.js");
+    const cleanup = await v2.tui.setup(context as Parameters<typeof v2.tui.setup>[0]);
+    return () => {
+      activation.active = false;
+      return cleanup?.();
+    };
+  } catch (error) {
+    activation.active = false;
+    warn("Could not start the Qoder sidebar:", error);
+    return undefined;
+  }
+}
+
+const entry = { id, tui, setup };
+export default entry satisfies TuiPluginModule;

@@ -16,3 +16,9 @@ Installing or using this plugin installs and uses that SDK. Users are
 responsible for reviewing and complying with the Qoder terms and the terms of
 any models or third-party services they access.
 
+The browser sign-in flow uses Qoder's device and job-token endpoints. Its
+protocol details were checked against the MIT-licensed
+[`magpie-community/plugins` Qoder package](https://github.com/magpie-community/plugins/tree/main/packages/qoder),
+which credits [CLIProxyAPI](https://github.com/ufec/CLIProxyAPI) for the
+underlying Qoder protocol. The bridge's sign-in implementation is original.
+

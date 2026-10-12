@@ -24,6 +24,7 @@ the official Qoder SDK.
 ## Highlights
 
 - **Official SDK, no vendoring** — depends on `@qoder-ai/qoder-agent-sdk` directly. No patched SDK copies, no CLI compat-wrapper scripts.
+- **Browser sign-in** — authorize Qoder through a URL in OpenCode, then use the resulting job token through the same SDK runtime. PAT and existing Qoder CLI login remain available.
 - **Correct streaming** — native AI SDK v3 stream-part translation (`content_block_start/delta/stop`, `message_delta`, assistant fallback), reasoning blocks, and tool-call handoff to opencode.
 - **Usage & cost tracking** — every completed turn is recorded to a local ledger (`~/.config/opencode-qoder-bridge/usage.json`) with per-model cost and token totals. Query it via the `qoder_usage` tool or the `opencode-qoder-bridge` statusline binary.
 - **Live quota** — `qoder_usage` also pulls live account quota via the SDK's `getUsageInfo()` (cached 60s).
@@ -41,7 +42,18 @@ the official Qoder SDK.
    npm install opencode-qoder-bridge
    ```
 
-3. Authenticate with a Qoder PAT (recommended):
+3. Sign in to Qoder from OpenCode:
+
+   ```bash
+   opencode auth login -p qoder
+   ```
+
+   Select **Sign in with Qoder (qoder.com) in your browser** and authorize the URL shown.
+   OpenCode stores the job token and refresh token in its auth store; the bridge
+   refreshes them before SDK requests. This option currently supports
+   qoder.com accounts. For Qoder CN, use the CN CLI login below.
+
+   Alternatively, authenticate with a Qoder PAT:
 
    ```bash
    export QODER_PERSONAL_ACCESS_TOKEN="pt-..."
@@ -53,8 +65,14 @@ the official Qoder SDK.
    qoder login
    ```
 
-PAT authentication uses the SDK's worker runtime when available and does not
-require a local `qoder login`. CLI authentication remains supported.
+The bridge uses the same SDK runtime for all three methods. A PAT takes first
+priority. When a Qoder CLI login is present, the bridge uses that login by
+default, matching the account and authentication path used by `qoder` in a
+terminal. If there is no CLI login, a saved OpenCode browser sign-in is used.
+Set `QODER_AUTH_MODE=browser` to use the saved browser sign-in when both are
+present, or `QODER_AUTH_MODE=cli` to require the CLI path. The SDK's host job-token callback is
+marked internal in SDK 1.0.51, so browser sign-in needs an authenticated check
+when upgrading the SDK.
 
 ### Qoder CN region
 
@@ -94,23 +112,60 @@ runtime fallback instead.
 
 ## Install
 
-For a published npm installation, add this to
-`~/.config/opencode/opencode.json`:
+The bridge supports **OpenCode 2** and **OpenCode 1** from a single package.
+
+For a published npm installation on OpenCode 2, add this to
+`~/.config/opencode/opencode.json` (or `opencode.jsonc`):
+
+```json
+{
+  "plugins": ["opencode-qoder-bridge"]
+}
+```
+
+For a local checkout or an unpublished package, create
+`.opencode/plugins/qoder-bridge.js` in the project and re-export the built
+plugin entry:
+
+```js
+export { default } from "file:///absolute/path/to/opencode-qoder-bridge/dist/index.js";
+```
+
+OpenCode 2 discovers plugins in `.opencode/plugins/`; the file URL must be an
+absolute path to the checkout's built `dist/index.js`.
+
+OpenCode 2 options live under `providers.qoder.settings` and are equivalent to
+OpenCode 1's `provider.qoder.options`:
+
+Set `disableQoderCliLogin` to `true` to hide the Qoder CLI and personal-token
+login methods from OpenCode's Qoder connection picker. Browser OAuth remains
+available. The option defaults to `false`.
+
+```json
+{
+  "plugins": [
+    {
+      "package": "opencode-qoder-bridge",
+      "options": { "sessionKey": "my-project" }
+    }
+  ],
+  "providers": {
+    "qoder": {
+      "settings": {
+        "sessionPersistence": true,
+        "disableQoderCliLogin": true
+      }
+    }
+  }
+}
+```
+
+On OpenCode 1 use the singular `plugin` key instead; both loaders read the same
+entry point:
 
 ```json
 {
   "plugin": ["opencode-qoder-bridge"]
-}
-```
-
-For a local checkout or an unpublished package, point OpenCode at the built
-plugin entry directly:
-
-```json
-{
-  "plugin": [
-    "file:///absolute/path/to/opencode-qoder-bridge/dist/index.js"
-  ]
 }
 ```
 
@@ -136,8 +191,8 @@ For a local checkout, rebuild before restarting OpenCode:
 npm run build
 ```
 
-Then use the `file:///.../dist/index.js` plugin entry shown above. This avoids
-OpenCode loading an older cached copy of the package.
+Then use the `.opencode/plugins/qoder-bridge.js` wrapper shown above. This
+avoids OpenCode loading an older cached copy of the package.
 
 ### Authenticated E2E tests
 
@@ -179,8 +234,8 @@ SDK exposes only a rounded whole-account quota, not its per-request Credits Log.
 The authoritative account balance still comes from SDK `userQuota`, refreshing
 after each completed Qoder turn and every 30 seconds while active.
 
-OpenCode loads server plugins and TUI plugins independently. On its first
-load, the bridge safely adds its bundled TUI entry to the global
+On OpenCode 1, the server plugin and the TUI plugin load independently. On its
+first load, the bridge safely adds its bundled TUI entry to the global
 `~/.config/opencode/tui.json`, preserving existing settings. Restart OpenCode
 once after initial installation so the TUI loader can activate it. The regular
 TUI loads these commands; OpenCode's `--mini` interface does not load external
@@ -192,6 +247,11 @@ TUI plugins in current releases. The resulting entry is equivalent to:
   "plugin": ["file:///path/to/opencode-qoder-bridge/dist/tui.js"]
 }
 ```
+
+OpenCode 2 loads the bundled sidebar on its own from the `tui` entry point, so
+no `tui.json` entry is needed. When OpenCode 2 migrates an existing `tui.json`
+plugin list into its own `plugins` list, the sidebar's activation guard makes
+sure only one copy renders.
 
 The ledger accumulates across sessions. Delete `~/.config/opencode-qoder-bridge/usage.json` to reset it.
 

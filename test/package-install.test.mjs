@@ -24,8 +24,12 @@ test("packed npm artifact installs and exposes its documented entrypoints", asyn
     const plugin = await import(pathToFileURL(join(packageRoot, "dist", "index.js")));
     const provider = await import(pathToFileURL(join(packageRoot, "dist", "provider.js")));
     const errors = await import(pathToFileURL(join(packageRoot, "dist", "errors.js")));
-    assert.equal(typeof plugin.default, "function");
+    assert.equal(typeof plugin.default, "object");
+    assert.equal(plugin.default.id, "opencode-qoder-bridge");
+    assert.equal(typeof plugin.default.server, "function");
+    assert.equal(typeof plugin.default.setup, "function");
     assert.equal(typeof provider.createQoderProvider, "function");
+    assert.equal(typeof provider.model, "function");
     assert.equal(typeof errors.QoderSdkResultError, "function");
   } finally {
     rmSync(temp, { recursive: true, force: true });

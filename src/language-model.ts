@@ -358,6 +358,7 @@ interface StreamState {
   controller: StreamController;
   contextWindow: number;
   functionToolNames: Set<string>;
+  toolInputKeys?: Map<string, ReadonlySet<string>>;
   activeText: Set<number>;
   activeReasoning: Set<number>;
   toolBlocks: Map<number, { id: string; name: string; input: string; providerExecuted: boolean; hasInput: boolean }>;
@@ -506,11 +507,17 @@ export class QoderLanguageModel implements LanguageModelV3 {
     }
     const sessionKey = this.bridgeOptions.sessionKey ?? this.bridgeOptions.sessionId;
 
-    const functionToolNames = new Set(
-      (options.tools ?? [])
-        .filter((t) => t.type === "function")
-        .map((t) => normalizeToolName(t.name)),
-    );
+    const functionToolNames = new Set<string>();
+    const toolInputKeys = new Map<string, ReadonlySet<string>>();
+    for (const tool of options.tools ?? []) {
+      if (tool.type !== "function") continue;
+      const name = normalizeToolName(tool.name);
+      functionToolNames.add(name);
+      const properties = isRecord(tool.inputSchema) && isRecord(tool.inputSchema.properties)
+        ? tool.inputSchema.properties
+        : undefined;
+      if (properties) toolInputKeys.set(name, new Set(Object.keys(properties)));
+    }
     const abortController = new AbortController();
     let qoderQuery: Query | null = null;
     let externallyAborted = false;
@@ -592,6 +599,7 @@ export class QoderLanguageModel implements LanguageModelV3 {
           controller,
           contextWindow: model.limit.context,
           functionToolNames,
+          toolInputKeys,
           activeText: new Set(),
           activeReasoning: new Set(),
           toolBlocks: new Map(),
@@ -1119,7 +1127,7 @@ function handleStreamEvent(ev: Record<string, unknown> | undefined, state: Strea
         return;
       }
       if (!state.pendingToolCalls.has(tb.id) && !tb.providerExecuted) {
-        const input = normalizedToolInput(tb.name, tb.input);
+        const input = normalizedToolInput(tb.name, tb.input, state.toolInputKeys?.get(tb.name));
         if (input === null) {
           failStream(state, "invalid_tool_input", `Qoder sent invalid JSON for tool ${tb.name}`);
           return;
@@ -1198,7 +1206,7 @@ function handleAssistant(m: Record<string, unknown>, state: StreamState): void {
       const providerExecuted = isProviderOwnedTool(raw.name, name, state.functionToolNames);
       state.pendingToolCalls.set(raw.id, { name, providerExecuted });
       if (!providerExecuted) {
-        const input = normalizedToolInput(name, raw.input);
+        const input = normalizedToolInput(name, raw.input, state.toolInputKeys?.get(name));
         if (input === null) {
           failStream(state, "invalid_tool_input", `Qoder sent invalid JSON for tool ${name}`);
           break;
@@ -1216,7 +1224,7 @@ function handleAssistant(m: Record<string, unknown>, state: StreamState): void {
   }
 }
 
-function normalizedToolInput(toolName: string, raw: unknown): string | null {
+function normalizedToolInput(toolName: string, raw: unknown, hostKeys?: ReadonlySet<string>): string | null {
   if (raw === undefined) {
     if (toolName === "bash") return "{}";
     debugInvalidToolInput(toolName, raw);
@@ -1231,13 +1239,13 @@ function normalizedToolInput(toolName: string, raw: unknown): string | null {
   try {
     const parsed = JSON.parse(trimmed || "{}");
     if (toolName === "bash" && typeof parsed === "string") {
-      return normalizeToolInputString(toolName, JSON.stringify({ command: parsed }));
+      return normalizeToolInputString(toolName, JSON.stringify({ command: parsed }), hostKeys);
     }
     if (!isRecord(parsed)) {
       debugInvalidToolInput(toolName, serialized);
       return null;
     }
-    return normalizeToolInputString(toolName, serialized);
+    return normalizeToolInputString(toolName, serialized, hostKeys);
   } catch {
     if (toolName === "bash") {
       const commandMatch = /"command"\s*:\s*"((?:[^"\\]|\\.)*)"/s.exec(trimmed);
@@ -1246,6 +1254,7 @@ function normalizedToolInput(toolName: string, raw: unknown): string | null {
           return normalizeToolInputString(
             toolName,
             JSON.stringify({ command: JSON.parse(`"${commandMatch[1]}"`) }),
+            hostKeys,
           );
         } catch {
           // Fall through to the plain-text compatibility path below.

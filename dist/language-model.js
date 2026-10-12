@@ -459,9 +459,19 @@ export class QoderLanguageModel {
             debug(`Unknown model id "${this.modelId}"; forwarding it with default prompt limits`);
         }
         const sessionKey = this.bridgeOptions.sessionKey ?? this.bridgeOptions.sessionId;
-        const functionToolNames = new Set((options.tools ?? [])
-            .filter((t) => t.type === "function")
-            .map((t) => normalizeToolName(t.name)));
+        const functionToolNames = new Set();
+        const toolInputKeys = new Map();
+        for (const tool of options.tools ?? []) {
+            if (tool.type !== "function")
+                continue;
+            const name = normalizeToolName(tool.name);
+            functionToolNames.add(name);
+            const properties = isRecord(tool.inputSchema) && isRecord(tool.inputSchema.properties)
+                ? tool.inputSchema.properties
+                : undefined;
+            if (properties)
+                toolInputKeys.set(name, new Set(Object.keys(properties)));
+        }
         const abortController = new AbortController();
         let qoderQuery = null;
         let externallyAborted = false;
@@ -553,6 +563,7 @@ export class QoderLanguageModel {
                     controller,
                     contextWindow: model.limit.context,
                     functionToolNames,
+                    toolInputKeys,
                     activeText: new Set(),
                     activeReasoning: new Set(),
                     toolBlocks: new Map(),
@@ -1105,7 +1116,7 @@ function handleStreamEvent(ev, state) {
                 return;
             }
             if (!state.pendingToolCalls.has(tb.id) && !tb.providerExecuted) {
-                const input = normalizedToolInput(tb.name, tb.input);
+                const input = normalizedToolInput(tb.name, tb.input, state.toolInputKeys?.get(tb.name));
                 if (input === null) {
                     failStream(state, "invalid_tool_input", `Qoder sent invalid JSON for tool ${tb.name}`);
                     return;
@@ -1190,7 +1201,7 @@ function handleAssistant(m, state) {
             const providerExecuted = isProviderOwnedTool(raw.name, name, state.functionToolNames);
             state.pendingToolCalls.set(raw.id, { name, providerExecuted });
             if (!providerExecuted) {
-                const input = normalizedToolInput(name, raw.input);
+                const input = normalizedToolInput(name, raw.input, state.toolInputKeys?.get(name));
                 if (input === null) {
                     failStream(state, "invalid_tool_input", `Qoder sent invalid JSON for tool ${name}`);
                     break;
@@ -1208,7 +1219,7 @@ function handleAssistant(m, state) {
         }
     }
 }
-function normalizedToolInput(toolName, raw) {
+function normalizedToolInput(toolName, raw, hostKeys) {
     if (raw === undefined) {
         if (toolName === "bash")
             return "{}";
@@ -1224,20 +1235,20 @@ function normalizedToolInput(toolName, raw) {
     try {
         const parsed = JSON.parse(trimmed || "{}");
         if (toolName === "bash" && typeof parsed === "string") {
-            return normalizeToolInputString(toolName, JSON.stringify({ command: parsed }));
+            return normalizeToolInputString(toolName, JSON.stringify({ command: parsed }), hostKeys);
         }
         if (!isRecord(parsed)) {
             debugInvalidToolInput(toolName, serialized);
             return null;
         }
-        return normalizeToolInputString(toolName, serialized);
+        return normalizeToolInputString(toolName, serialized, hostKeys);
     }
     catch {
         if (toolName === "bash") {
             const commandMatch = /"command"\s*:\s*"((?:[^"\\]|\\.)*)"/s.exec(trimmed);
             if (commandMatch) {
                 try {
-                    return normalizeToolInputString(toolName, JSON.stringify({ command: JSON.parse(`"${commandMatch[1]}"`) }));
+                    return normalizeToolInputString(toolName, JSON.stringify({ command: JSON.parse(`"${commandMatch[1]}"`) }), hostKeys);
                 }
                 catch {
                     // Fall through to the plain-text compatibility path below.

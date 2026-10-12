@@ -68,7 +68,7 @@ export function normalizeToolName(name: string): string {
 }
 
 /** Normalize a parsed tool-input object for the given (already normalized) tool name. */
-export function normalizeToolInput(toolName: string, input: unknown): unknown {
+export function normalizeToolInput(toolName: string, input: unknown, hostKeys?: ReadonlySet<string>): unknown {
   if (!isRecord(input)) return input;
 
   const renames = Object.hasOwn(KEY_RENAMES, toolName) ? KEY_RENAMES[toolName] : undefined;
@@ -77,6 +77,13 @@ export function normalizeToolInput(toolName: string, input: unknown): unknown {
     if (UNSAFE_KEYS.has(k)) continue;
     const renamed = renames && Object.hasOwn(renames, k) ? renames[k] : k;
     if (!UNSAFE_KEYS.has(renamed)) out[renamed] = v;
+  }
+
+  // OpenCode 1 file tools use `filePath`; OpenCode 2 uses `path`. Select the
+  // key advertised by the host tool schema instead of assuming a generation.
+  if (hostKeys?.has("path") && !hostKeys.has("filePath") && Object.hasOwn(out, "filePath")) {
+    out.path = out.filePath;
+    delete out.filePath;
   }
 
   if (toolName === "task" && typeof out.subagent_type === "string") {
@@ -100,11 +107,11 @@ export function normalizeToolInput(toolName: string, input: unknown): unknown {
 }
 
 /** Parse a JSON input string, normalize, and re-serialize. Falls back to the original on parse error. */
-export function normalizeToolInputString(toolName: string, input: string): string {
+export function normalizeToolInputString(toolName: string, input: string, hostKeys?: ReadonlySet<string>): string {
   const trimmed = input.trim();
   if (!trimmed) return "{}";
   try {
-    return JSON.stringify(normalizeToolInput(toolName, JSON.parse(trimmed)));
+    return JSON.stringify(normalizeToolInput(toolName, JSON.parse(trimmed), hostKeys));
   } catch {
     return input;
   }
