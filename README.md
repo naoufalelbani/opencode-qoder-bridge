@@ -1,14 +1,21 @@
 # opencode-qoder-bridge
 
 [![CI](https://github.com/naoufalelbani/opencode-qoder-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/naoufalelbani/opencode-qoder-bridge/actions/workflows/ci.yml)
+[![Security and dependency audit](https://github.com/naoufalelbani/opencode-qoder-bridge/actions/workflows/security.yml/badge.svg)](https://github.com/naoufalelbani/opencode-qoder-bridge/actions/workflows/security.yml)
 [![npm version](https://img.shields.io/npm/v/opencode-qoder-bridge?logo=npm)](https://www.npmjs.com/package/opencode-qoder-bridge)
 [![npm downloads](https://img.shields.io/npm/dm/opencode-qoder-bridge?logo=npm)](https://www.npmjs.com/package/opencode-qoder-bridge)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Security policy](https://img.shields.io/badge/security-policy-2ea44f?logo=github)](./SECURITY.md)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.22.2-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-An [opencode](https://opencode.ai) plugin that bridges **Qoder AI** models into your terminal via the official [`@qoder-ai/qoder-agent-sdk`](https://www.npmjs.com/package/@qoder-ai/qoder-agent-sdk).
+Run Qoder models in [OpenCode](https://opencode.ai) with the official
+[`@qoder-ai/qoder-agent-sdk`](https://www.npmjs.com/package/@qoder-ai/qoder-agent-sdk).
+Stream responses and tool calls, sign in with browser OAuth, your Qoder CLI, or
+a personal access token, and check live quota alongside local usage history.
 
-A ground-up rewrite focused on reliability, performance, and first-class usage/cost visibility.
+**OpenCode 1 + 2 · Official SDK · Flexible sign-in · Live quota · Local usage ledger**
+
+[Quick start](#quick-start) · [Features](#highlights) · [Security](#security)
 
 ![OpenCode Qoder Bridge architecture](./architecture.svg)
 
@@ -21,15 +28,46 @@ the official Qoder SDK.
 > endorsed by, or sponsored by Qoder or OpenCode. Use of the Qoder SDK and
 > services is subject to the [Qoder Product Service Terms](https://qoder.com/product-service).
 
+## What's new in v0.3.0
+
+Version 0.3.0 brings the bridge to OpenCode 2 and adds browser sign-in for
+qoder.com accounts, while keeping OpenCode 1 support in the same package. Use
+the login method that fits your setup; every method feeds the official Qoder
+Agent SDK runtime.
+
+![Qoder sign-in choices flow through the official SDK](./docs/images/auth-options.svg)
+
+- **Choose how to sign in.** Use browser sign-in, a Qoder CLI login, or a
+  personal access token. Set `disableQoderCliLogin: true` to hide the CLI and
+  personal-token login choices from OpenCode's Qoder connection picker while
+  keeping browser sign-in available.
+- **Get to chat sooner.** OpenCode 2 can start with cached or fallback models
+  while the live Qoder model catalog loads in the background.
+- **Use file tools reliably.** The bridge now forwards the file path field
+  OpenCode 2 expects, fixing Qoder `Read` calls that previously failed with a
+  missing-path error.
+- **Keep one integration across OpenCode versions.** The package exposes the
+  OpenCode 2 plugin and TUI interfaces while retaining the OpenCode 1 server
+  plugin.
+- **Use the updated SDK and dependencies.** Qoder Agent SDK 1.0.51 and refreshed
+  OpenCode, AI SDK, and security dependencies are included.
+
+Together, these updates make setup more flexible, bring model selection up
+sooner, and make OpenCode 2 file operations work with the expected tool schema.
+Usage history, live quota, sessions, MCP support, and cost reporting remain part
+of the same integration.
+
 ## Highlights
 
-- **Official SDK, no vendoring** — depends on `@qoder-ai/qoder-agent-sdk` directly. No patched SDK copies, no CLI compat-wrapper scripts.
-- **Browser sign-in** — authorize Qoder through a URL in OpenCode, then use the resulting job token through the same SDK runtime. PAT and existing Qoder CLI login remain available.
-- **Correct streaming** — native AI SDK v3 stream-part translation (`content_block_start/delta/stop`, `message_delta`, assistant fallback), reasoning blocks, and tool-call handoff to opencode.
-- **Usage & cost tracking** — every completed turn is recorded to a local ledger (`~/.config/opencode-qoder-bridge/usage.json`) with per-model cost and token totals. Query it via the `qoder_usage` tool or the `opencode-qoder-bridge` statusline binary.
-- **Live quota** — `qoder_usage` also pulls live account quota via the SDK's `getUsageInfo()` (cached 60s).
-- **Reliable lifecycle** — proper abort propagation, idempotent cleanup, and external-abort vs. internal-error distinction so cancellations don't surface as errors.
-- **Image input** — multimodal prompts are passed through the SDK's async-iterable path (base64, data URLs, `file://`, `~/`, and absolute paths).
+- **One plugin for OpenCode 1 and 2** — keep your Qoder setup across supported OpenCode generations.
+- **Official Qoder runtime** — uses `@qoder-ai/qoder-agent-sdk` directly for model requests and agent features; no vendored or patched SDK copy.
+- **Sign in your way** — use browser authorization for qoder.com, an existing Qoder CLI login, or a personal access token. CN region users can use the CN CLI flow.
+- **Tools that work with OpenCode** — streams text and reasoning, hands Qoder tool calls to OpenCode host tools, and bridges configured MCP servers.
+- **See account and session usage** — query live Qoder quota and inspect local per-turn token and cost history with `qoder_usage` or the statusline command.
+- **Start with models quickly** — OpenCode 2 can register cached or built-in models before live discovery finishes.
+- **Handle images and long sessions** — accepts common local image paths and data URLs; supports configurable session persistence, abort propagation, and bounded runtime limits.
+
+![Live quota and local usage history are available through the Qoder usage tools](./docs/images/usage-visibility.svg)
 
 ## Quick start
 
@@ -45,10 +83,12 @@ the official Qoder SDK.
 3. Sign in to Qoder from OpenCode:
 
    ```bash
-   opencode auth login -p qoder
+   opencode auth login qoder --method oauth
    ```
 
-   Select **Sign in with Qoder (qoder.com) in your browser** and authorize the URL shown.
+   Authorize the URL shown in your browser. You can also open the OpenCode
+   connection picker and choose **Qoder (opencode-qoder-bridge)**, then select
+   **Sign in with Qoder via opencode-qoder-bridge**.
    OpenCode stores the job token and refresh token in its auth store; the bridge
    refreshes them before SDK requests. This option currently supports
    qoder.com accounts. For Qoder CN, use the CN CLI login below.
@@ -64,6 +104,19 @@ the official Qoder SDK.
    ```bash
    qoder login
    ```
+
+### Security
+
+The [Security and dependency audit workflow](https://github.com/naoufalelbani/opencode-qoder-bridge/actions/workflows/security.yml)
+runs npm dependency auditing, builds the package, checks the installable npm
+artifact, and scans tracked files for accidental credentials on pull requests
+and pushes to `main`. See the [security policy](./SECURITY.md) for private
+vulnerability reporting and credential-handling notes.
+
+Browser credentials are stored by OpenCode and refreshed for SDK requests. The
+usage ledger is local to the bridge state directory. Keep `bypassPermissions`
+for trusted, disposable workspaces only; OpenCode remains responsible for
+confirming and executing host-tool actions.
 
 The bridge uses the same SDK runtime for all three methods. A PAT takes first
 priority. When a Qoder CLI login is present, the bridge uses that login by

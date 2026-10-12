@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 300" role="img" aria-labelledby="title desc">
+  <title id="title">Sign in to Qoder from OpenCode</title>
+  <desc id="desc">Browser sign-in, Qoder CLI login, or a personal access token are passed through the bridge to the official Qoder Agent SDK.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#111827"/><stop offset="1" stop-color="#172554"/></linearGradient>
+    <linearGradient id="bridge" x1="0" x2="1"><stop stop-color="#4338ca"/><stop offset="1" stop-color="#2563eb"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#93c5fd"/></marker>
+    <style>
+      .title{font:700 23px system-ui,-apple-system,Segoe UI,sans-serif;fill:#f8fafc}
+      .label{font:650 16px system-ui,-apple-system,Segoe UI,sans-serif;fill:#f8fafc}
+      .copy{font:14px system-ui,-apple-system,Segoe UI,sans-serif;fill:#cbd5e1}
+      .tag{font:12px system-ui,-apple-system,Segoe UI,sans-serif;fill:#bfdbfe}
+    </style>
+  </defs>
+  <rect width="1120" height="300" rx="24" fill="url(#background)"/>
+  <text x="40" y="48" class="title">Use your existing Qoder sign-in</text>
+  <g transform="translate(40 68)">
+    <rect width="240" height="60" rx="14" fill="#1e293b" stroke="#60a5fa"/>
+    <circle cx="27" cy="22" r="9" fill="#3b82f6"/><text x="48" y="27" class="label">Browser</text>
+    <text x="22" y="48" class="copy">Authorize qoder.com in OpenCode</text>
+  </g>
+  <g transform="translate(40 138)">
+    <rect width="240" height="60" rx="14" fill="#1e293b" stroke="#a78bfa"/>
+    <circle cx="27" cy="22" r="9" fill="#8b5cf6"/><text x="48" y="27" class="label">Qoder CLI</text>
+    <text x="22" y="48" class="copy">Reuse a local Qoder login</text>
+  </g>
+  <g transform="translate(40 208)">
+    <rect width="240" height="60" rx="14" fill="#1e293b" stroke="#fbbf24"/>
+    <circle cx="27" cy="22" r="9" fill="#f59e0b"/><text x="48" y="27" class="label">Personal access token</text>
+    <text x="22" y="48" class="copy">Use your Qoder PAT</text>
+  </g>
+  <path d="M280 98H326V157H360" fill="none" stroke="#93c5fd" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M280 168H360" fill="none" stroke="#c4b5fd" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M280 238H326V179H360" fill="none" stroke="#fcd34d" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <g transform="translate(360 117)">
+    <rect width="250" height="80" rx="16" fill="url(#bridge)" stroke="#93c5fd"/>
+    <text x="125" y="34" class="label" text-anchor="middle">OpenCode Qoder Bridge</text>
+    <text x="125" y="59" class="tag" text-anchor="middle">auth · streaming · tools</text>
+  </g>
+  <path d="M610 157H680" fill="none" stroke="#93c5fd" stroke-width="3" marker-end="url(#arrow)"/>
+  <g transform="translate(700 117)">
+    <rect width="370" height="80" rx="16" fill="#064e3b" stroke="#34d399"/>
+    <text x="185" y="34" class="label" text-anchor="middle">Official Qoder Agent SDK</text>
+    <text x="185" y="59" class="copy" text-anchor="middle">models · agent runtime · quota</text>
+  </g>
+  <text x="40" y="287" class="tag">Choose the login methods you want to offer in the OpenCode connection picker.</text>
+</svg>

@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 270" role="img" aria-labelledby="title desc">
+  <title id="title">Qoder quota and usage visibility</title>
+  <desc id="desc">The Qoder usage command combines live account quota from the Qoder SDK with local session token and cost history.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#111827"/><stop offset="1" stop-color="#0f2c38"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#6ee7b7"/></marker>
+    <style>
+      .title{font:700 23px system-ui,-apple-system,Segoe UI,sans-serif;fill:#f8fafc}
+      .label{font:650 17px system-ui,-apple-system,Segoe UI,sans-serif;fill:#f8fafc}
+      .copy{font:14px system-ui,-apple-system,Segoe UI,sans-serif;fill:#cbd5e1}
+      .tag{font:12px system-ui,-apple-system,Segoe UI,sans-serif;fill:#a7f3d0}
+    </style>
+  </defs>
+  <rect width="1120" height="270" rx="24" fill="url(#background)"/>
+  <text x="40" y="48" class="title">Know what’s happening across turns</text>
+  <g transform="translate(40 70)">
+    <rect width="300" height="76" rx="16" fill="#1e293b" stroke="#38bdf8"/>
+    <text x="20" y="30" class="label">Live account quota</text>
+    <text x="20" y="55" class="copy">From Qoder through the SDK</text>
+  </g>
+  <g transform="translate(40 164)">
+    <rect width="300" height="76" rx="16" fill="#1e293b" stroke="#a78bfa"/>
+    <text x="20" y="30" class="label">Local usage history</text>
+    <text x="20" y="55" class="copy">Turn token and cost totals</text>
+  </g>
+  <path d="M340 108H390V144H410" fill="none" stroke="#6ee7b7" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M340 202H390V166H410" fill="none" stroke="#c4b5fd" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <g transform="translate(410 110)">
+    <rect width="260" height="90" rx="16" fill="#064e3b" stroke="#34d399"/>
+    <text x="130" y="36" class="label" text-anchor="middle">qoder_usage</text>
+    <text x="130" y="62" class="copy" text-anchor="middle">TUI command · agent tool · CLI</text>
+  </g>
+  <path d="M670 155H730" fill="none" stroke="#6ee7b7" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <g transform="translate(750 110)">
+    <rect width="330" height="90" rx="16" fill="#1e293b" stroke="#fbbf24"/>
+    <text x="165" y="36" class="label" text-anchor="middle">A clearer usage picture</text>
+    <text x="165" y="62" class="copy" text-anchor="middle">live quota + local turn history</text>
+  </g>
+  <text x="40" y="258" class="tag">Live quota is fetched from Qoder; turn history is stored locally in the bridge state directory.</text>
+</svg>

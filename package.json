@@ -39,6 +39,7 @@
     "bin",
     "CHANGELOG.md",
     "README.md",
+    "docs/images",
     "architecture.svg",
     "LICENSE",
     "RELEASING.md",
