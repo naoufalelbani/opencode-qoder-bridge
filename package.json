@@ -77,7 +77,7 @@
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "2.0.81",
+    "@ai-sdk/openai-compatible": "3.0.67",
     "@opencode-ai/plugin": "1.19.0",
     "@opencode/plugin": "2.0.26",
     "@qoder-ai/qoder-agent-sdk": "1.0.51",
