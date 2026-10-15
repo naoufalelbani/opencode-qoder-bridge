@@ -3,6 +3,7 @@ export type QoderRegionPreference = "auto" | QoderRegion;
 export declare const QODER_REGION_ENV = "QODER_REGION";
 export declare const QODER_CLI_PATH_ENV = "QODER_CLI_PATH";
 export declare function isAuthenticated(): boolean;
+export declare function isAuthenticatedForRegion(region: QoderRegion): boolean;
 /** Classify a resolved CLI path by region. Null when no CLI is resolved. */
 export declare function getQoderRegion(cliPath?: string | null): QoderRegion | null;
 /** Read the QODER_REGION preference (`auto` default). */
@@ -20,6 +21,6 @@ export declare function cliLoginHint(environment?: Record<string, string | undef
  * Returns null when no separately installed CLI is found. The Qoder SDK can
  * still run through its bundled Worker runtime when credentials are present.
  */
-export declare function findQoderCLI(force?: boolean): string | null;
+export declare function findQoderCLI(force?: boolean, environment?: Record<string, string | undefined>): string | null;
 export declare function resetCachedCliPath(): void;
 //# sourceMappingURL=auth.d.ts.map

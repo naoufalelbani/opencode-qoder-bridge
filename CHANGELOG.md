@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases use
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-15
+
+### Changed
+
+- Added Qoder CN browser sign-in with CN job-token and device-token refresh,
+  routed through the official Qoder CN Agent SDK.
+- Added guided Qoder CN Enterprise VPC browser sign-in, account-scoped endpoint
+  persistence, and VPC-aware model, chat, usage, refresh, and check-in requests.
+- Added the `qoder_checkin` command and tool for daily campaign credits, using
+  Qoder's runtime-info device identity for global accounts.
+- Expanded Qoder result handling for quota, queued-model, request-refusal, and
+  expired-sign-in codes, with retry guidance for queued requests.
+- Added focused regression coverage for VPC endpoint validation and Qoder
+  quota, queued-model, and request-refusal responses.
+- Clarified the bridge's fit against other Qoder OpenCode plugins and added an
+  OpenCode 2 quick start that installs the plugin through OpenCode.
+- Refreshed npm package metadata to describe supported OpenCode versions and
+  account features.
+
 Lockstep policy: `opencode-qoder-bridge` and `pi-qoder-bridge` (separate repo)
 share version numbers and release together. `0.2.0` is the first aligned
 release. The pi package intentionally stays provider + usage only.

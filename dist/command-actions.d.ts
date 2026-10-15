@@ -2,6 +2,11 @@ import type { Query } from "@qoder-ai/qoder-agent-sdk";
 import type { ModelDiscoveryOptions } from "./models.js";
 import type { QoderBridgeOptions } from "./types.js";
 export declare const QODER_COMMANDS: readonly [{
+    readonly name: "qoder_checkin";
+    readonly title: "Qoder Daily Check-in";
+    readonly description: "Claim Qoder's daily credits for the browser-signed-in account.";
+    readonly argumentHint: "";
+}, {
     readonly name: "qoder_usage";
     readonly title: "Qoder Usage";
     readonly description: "Show live Qoder quota and local cost/token totals.";
@@ -81,8 +86,9 @@ export declare function safeDisplay(value: unknown, fallback: string, maxLength?
 export declare function closePendingMcpAuth(pendingMcpAuth: Map<string, PendingMcpAuth>, serverName: string): Promise<void>;
 export declare function closeAllPendingMcpAuth(pendingMcpAuth: Map<string, PendingMcpAuth>): Promise<void>;
 export declare function runQoderUsage(_context: QoderCommandContext): Promise<CommandResult>;
+export declare function runQoderCheckin(): Promise<CommandResult>;
 export declare function runQoderModels(context: QoderCommandContext): Promise<CommandResult>;
-export declare function runQoderSessions(_context: QoderCommandContext, input?: QoderSessionsArguments): Promise<CommandResult>;
+export declare function runQoderSessions(context: QoderCommandContext, input?: QoderSessionsArguments): Promise<CommandResult>;
 export declare function runQoderSessionReset(context: QoderCommandContext, key?: string): Promise<CommandResult>;
 export declare function runQoderSessionFork(context: QoderCommandContext, input?: QoderSessionForkArguments): Promise<CommandResult>;
 export declare function runQoderMcpStatus(context: QoderCommandContext): Promise<CommandResult>;

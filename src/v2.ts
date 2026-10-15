@@ -4,23 +4,26 @@ import type { IntegrationOAuthAuthorization } from "@opencode/plugin/promise/int
 import { z } from "zod";
 import { isRecord, normalizeBridgeSettings } from "./bridge-options.js";
 import type { NormalizedBridgeSettings } from "./bridge-options.js";
-import { qoderDeviceSignIn, refreshQoderJobToken } from "./device-sign-in.js";
+import { decodeRefreshToken, qoderDeviceSignIn, refreshQoderBrowserToken } from "./device-sign-in.js";
 import { QoderAuthError } from "./errors.js";
 import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
 import { bridgeMcpServersV2 } from "./mcp-bridge.js";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels } from "./models.js";
 import type { DynamicModelEntry } from "./models.js";
 import { writeStoredBrowserCredential } from "./opencode-auth-store.js";
-import { configureBrowserAuth, QODER_PAT_ENV } from "./sdk-auth.js";
+import { browserAuthVpcEndpoint, configureBrowserAuth, QODER_PAT_ENV } from "./sdk-auth.js";
 import type { BrowserCredential } from "./sdk-auth.js";
 import { createQoderToolSpecs } from "./tools.js";
 import type { PendingMcpAuth, QoderCommandContext } from "./command-actions.js";
 import { QoderLanguageModel } from "./language-model.js";
+import { normalizeCnVpcEndpoint } from "./cn-vpc.js";
 
 const AI_SDK_PROVIDER_PACKAGE = "aisdk:@ai-sdk/openai-compatible";
 const PROVIDER_ID = "qoder";
 const INTEGRATION_ID = "qoder";
 const OAUTH_METHOD_ID = "oauth";
+const OAUTH_CN_METHOD_ID = "oauth-cn";
+const OAUTH_CN_VPC_METHOD_ID = "oauth-cn-vpc";
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
 /** Money amounts are branded in the schema; the bridge already prices in USD/M. */
@@ -163,7 +166,11 @@ export async function setup(ctx: Plugin.Context): Promise<Plugin.Cleanup | void>
   // Publish the cached/fallback catalog immediately. Live discovery can take
   // several seconds on a cold start, so it runs after setup and updates the
   // provider registry when the account catalog arrives.
-  let models = mergeModels(getCachedDynamicModels(resolved.environment, resolved.discovery));
+  const modelDiscovery = {
+    ...resolved.discovery,
+    ...(browserAuthVpcEndpoint() ? { vpcEndpoint: browserAuthVpcEndpoint() } : {}),
+  };
+  let models = mergeModels(getCachedDynamicModels(resolved.environment, modelDiscovery));
 
   const providerID = Provider.ID.make(PROVIDER_ID);
   await track(ctx.provider.transform((editor) => {
@@ -246,7 +253,49 @@ export async function setup(ctx: Plugin.Context): Promise<Plugin.Cleanup | void>
             `Qoder is already connected as ${existing.label}. Remove that account first to keep only one Qoder user.`,
           );
         }
-        return authorizeQoder();
+        return authorizeQoder("global");
+      },
+      refresh: refreshQoderCredential,
+      label: qoderCredentialLabel,
+    });
+    editor.method.update({
+      integrationID: INTEGRATION_ID,
+      method: { id: OAUTH_CN_METHOD_ID, type: "oauth", label: "Sign in with Qoder CN via opencode-qoder-bridge" },
+      authorize: async () => {
+        const integration = await ctx.integration.get({ integrationID: INTEGRATION_ID });
+        const existing = integration.data.connections.find((connection) => connection.type === "credential");
+        if (existing) {
+          throw new QoderAuthError(
+            `Qoder is already connected as ${existing.label}. Remove that account first to keep only one Qoder user.`,
+          );
+        }
+        return authorizeQoder("cn");
+      },
+      refresh: refreshQoderCredential,
+      label: qoderCredentialLabel,
+    });
+    editor.method.update({
+      integrationID: INTEGRATION_ID,
+      method: {
+        id: OAUTH_CN_VPC_METHOD_ID,
+        type: "oauth",
+        label: "Sign in with Qoder CN Enterprise (VPC)",
+        form: [{
+          key: "vpc",
+          type: "string",
+          title: "Enterprise VPC instance",
+          description: "Enter the instance name (for example, acme) or its HTTPS address under vpc.qoder.com.cn.",
+          placeholder: "acme",
+          required: true,
+        }],
+      },
+      authorize: async (answer) => {
+        const integration = await ctx.integration.get({ integrationID: INTEGRATION_ID });
+        const existing = integration.data.connections.find((connection) => connection.type === "credential");
+        if (existing) throw new QoderAuthError(`Qoder is already connected as ${existing.label}. Remove that account first to keep only one Qoder user.`);
+        const endpoint = normalizeCnVpcEndpoint(answer.vpc);
+        if (!endpoint) throw new QoderAuthError("Enter a valid Qoder CN enterprise VPC instance name or HTTPS address.");
+        return authorizeQoder("cn", endpoint);
       },
       refresh: refreshQoderCredential,
       label: qoderCredentialLabel,
@@ -286,7 +335,10 @@ export async function setup(ctx: Plugin.Context): Promise<Plugin.Cleanup | void>
   // mutable `models` catalog is published as soon as discovery succeeds.
   void (async () => {
     try {
-      const refreshed = await fetchDynamicModels(true, resolved!.environment, resolved!.discovery);
+      const refreshed = await fetchDynamicModels(true, resolved!.environment, {
+        ...resolved!.discovery,
+        ...(browserAuthVpcEndpoint() ? { vpcEndpoint: browserAuthVpcEndpoint() } : {}),
+      });
       if (!refreshed || disposed) return;
       const nextModels = mergeModels(refreshed);
       if (JSON.stringify(nextModels) === JSON.stringify(models)) return;
@@ -327,6 +379,11 @@ async function bindBrowserAuth(ctx: Plugin.Context): Promise<void> {
     }
     const metadata = isRecord(credential.metadata) ? credential.metadata : {};
     const accountId = typeof metadata.accountId === "string" ? metadata.accountId : undefined;
+    const region = metadata.region === "cn" || metadata.region === "global"
+      ? metadata.region
+      : decodeRefreshToken(credential.refresh).region;
+    const vpcEndpoint = (typeof metadata.vpcEndpoint === "string" ? normalizeCnVpcEndpoint(metadata.vpcEndpoint) : undefined)
+      ?? decodeRefreshToken(credential.refresh).vpcEndpoint;
     let current: BrowserCredential = {
       type: "oauth",
       access: credential.access,
@@ -336,6 +393,8 @@ async function bindBrowserAuth(ctx: Plugin.Context): Promise<void> {
     };
     configureBrowserAuth({
       accountId,
+      region,
+      vpcEndpoint,
       read: async () => current,
       write: async (updated, previous) => {
         current = updated;
@@ -354,8 +413,8 @@ async function bindBrowserAuth(ctx: Plugin.Context): Promise<void> {
 }
 
 /** OpenCode 2 asks integrations to run the browser device flow. */
-async function authorizeQoder(): Promise<IntegrationOAuthAuthorization> {
-  const result = await qoderDeviceSignIn();
+async function authorizeQoder(region: "global" | "cn", vpcEndpoint?: string): Promise<IntegrationOAuthAuthorization> {
+  const result = await qoderDeviceSignIn({}, region, vpcEndpoint);
   return {
     url: result.url,
     instructions: result.instructions,
@@ -366,23 +425,25 @@ async function authorizeQoder(): Promise<IntegrationOAuthAuthorization> {
       if (granted.type !== "success" || !("access" in granted)) {
         throw new QoderAuthError("Qoder browser sign-in was not completed.");
       }
-      return toOAuthCredential(granted);
+      return toOAuthCredential(granted, region, vpcEndpoint);
     })(),
   };
 }
 
 function qoderCredentialLabel(credential: Credential.OAuth): string {
   const metadata = isRecord(credential.metadata) ? credential.metadata : {};
+  const credentialRegion = typeof credential.refresh === "string" ? decodeRefreshToken(credential.refresh).region : undefined;
   const accountId = typeof metadata.accountId === "string"
     ? metadata.accountId.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim().slice(0, 120)
     : "";
+  const region = metadata.region === "cn" || credentialRegion === "cn" ? "Qoder CN" : "Qoder";
   return accountId
-    ? `${accountId} (opencode-qoder-bridge)`
-    : "Qoder account (opencode-qoder-bridge)";
+    ? `${region}: ${accountId} (opencode-qoder-bridge)`
+    : `${region} account (opencode-qoder-bridge)`;
 }
 
 async function refreshQoderCredential(credential: Credential.OAuth): Promise<Credential.OAuth> {
-  const renewed = await refreshQoderJobToken(credential.refresh, AbortSignal.timeout(20_000));
+  const renewed = await refreshQoderBrowserToken(credential.refresh, AbortSignal.timeout(20_000));
   return { ...credential, access: renewed.access, refresh: renewed.refresh, expires: renewed.expires };
 }
 
@@ -391,13 +452,13 @@ function toOAuthCredential(granted: {
   refresh: string;
   expires: number;
   accountId?: string;
-}): Credential.OAuth {
+}, region: "global" | "cn", vpcEndpoint?: string): Credential.OAuth {
   return {
     type: "oauth",
-    methodID: OAUTH_METHOD_ID as unknown as Credential.OAuth["methodID"],
+    methodID: (vpcEndpoint ? OAUTH_CN_VPC_METHOD_ID : region === "cn" ? OAUTH_CN_METHOD_ID : OAUTH_METHOD_ID) as unknown as Credential.OAuth["methodID"],
     access: granted.access,
     refresh: granted.refresh,
     expires: granted.expires,
-    ...(granted.accountId ? { metadata: { accountId: granted.accountId } } : {}),
+    metadata: { region, ...(vpcEndpoint ? { vpcEndpoint } : {}), ...(granted.accountId ? { accountId: granted.accountId } : {}) },
   };
 }

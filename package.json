@@ -1,15 +1,19 @@
 {
   "name": "opencode-qoder-bridge",
-  "version": "0.3.0",
-  "description": "Qoder provider plugin for OpenCode with support for Qoder international and CN regions, powered by the official Agent SDK. Includes streaming, tools, MCP, sessions, multimodal input, and quota tracking.",
+  "version": "0.4.0",
+  "description": "Official regional Qoder Agent SDK provider for OpenCode 1 and 2, with browser sign-in, MCP, daily credits, quota and usage history.",
   "keywords": [
     "opencode",
     "opencode-plugin",
     "qoder",
     "qoder-ai",
+    "qoder-cn",
     "qoder-provider",
     "qoder-agent-sdk",
     "qoder-cli",
+    "qoder-quota",
+    "qoder-checkin",
+    "opencode-v2",
     "ai-coding",
     "coding-agent",
     "mcp"
@@ -81,6 +85,7 @@
     "@opencode-ai/plugin": "1.19.0",
     "@opencode/plugin": "2.0.26",
     "@qoder-ai/qoder-agent-sdk": "1.0.51",
+    "@qodercn-ai/qodercn-agent-sdk": "1.0.53",
     "jsonc-parser": "3.3.1",
     "zod": "4.6.6"
   },
@@ -120,6 +125,7 @@
   },
   "allowScripts": {
     "@qoder-ai/qoder-agent-sdk@1.0.51": true,
+    "@qodercn-ai/qodercn-agent-sdk@1.0.53": true,
     "msgpackr-extract@3.0.4": true
   },
   "directories": {

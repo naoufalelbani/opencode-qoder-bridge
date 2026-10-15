@@ -1,0 +1,1 @@
+{"version":3,"file":"sdk-runtime.d.ts","sourceRoot":"","sources":["../src/sdk-runtime.ts"],"names":[],"mappings":"AAGA,KAAK,UAAU,GAAG,cAAc,2BAA2B,CAAC,CAAC;AAK7D,wBAAgB,WAAW,CAAC,WAAW,GAAE,MAAM,CAAC,MAAM,EAAE,MAAM,GAAG,SAAS,CAAe,GAAG,OAAO,CAelG;AAED,kEAAkE;AAClE,wBAAsB,aAAa,CAAC,WAAW,GAAE,MAAM,CAAC,MAAM,EAAE,MAAM,GAAG,SAAS,CAAe,GAAG,OAAO,CAAC,UAAU,CAAC,CAOtH"}

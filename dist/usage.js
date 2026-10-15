@@ -1,7 +1,7 @@
-import { query } from "@qoder-ai/qoder-agent-sdk";
+import { getSdkRuntime } from "./sdk-runtime.js";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
-import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
+import { applyBrowserAuthRegion, browserAuthVpcEndpoint, hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { debug, describeError } from "./logger.js";
 import { closeAsyncIterator, withTimeout } from "./async-utils.js";
 const CACHE_TTL_MS = 60_000;
@@ -29,17 +29,21 @@ export function getLiveUsage(force = false) {
         if (typeof timeout.unref === "function")
             timeout.unref();
         try {
-            if (!hasQoderCredential())
+            const environment = applyBrowserAuthRegion(process.env);
+            if (!hasQoderCredential(environment))
                 return null;
-            const cli = findQoderCLI();
-            q = query({
+            const cli = findQoderCLI(false, environment);
+            const sdk = await getSdkRuntime(environment);
+            q = sdk.query({
                 prompt: idlePrompt(abortController.signal),
                 options: {
-                    auth: qoderAuth(),
+                    auth: qoderAuth(environment),
                     abortController,
                     maxTurns: 1,
                     persistSession: false,
                     ...(cli ? { pathToQoderCLIExecutable: cli } : {}),
+                    ...(browserAuthVpcEndpoint() ? { vpcEndpoint: browserAuthVpcEndpoint() } : {}),
+                    env: environment,
                 },
             });
             const usage = await withTimeout(q.getUsageInfo(), FETCH_TIMEOUT_MS, `Qoder usage request exceeded ${FETCH_TIMEOUT_MS}ms`);

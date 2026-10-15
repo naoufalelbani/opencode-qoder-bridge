@@ -1,14 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { query as sdkQuery } from "@qoder-ai/qoder-agent-sdk";
+import { getSdkRuntime } from "./sdk-runtime.js";
 import { getModel, DEFAULT_MODEL_ID, applyLiveModelUpdates } from "./models.js";
 import { findQoderCLI, cliLoginHint } from "./auth.js";
 import { buildPromptString, buildPromptIterable, latestPrompt, promptHasImage } from "./prompt-builder.js";
 import { normalizeToolName, normalizeToolInputString } from "./tool-normalizer.js";
 import { recordTurn } from "./cost.js";
 import { deleteQoderSession, ensureQoderSession, getQoderSessionForCwd, getQoderSessionResetEpoch, withQoderSessionLease } from "./session-store.js";
-import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
+import { applyBrowserAuthRegion, browserAuthVpcEndpoint, hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { QoderAuthError, QoderSdkResultError } from "./errors.js";
 import { debug, describeError, isDebugEnabled, redactSensitiveText } from "./logger.js";
 import { mergedEnvironment } from "./environment.js";
@@ -31,6 +31,8 @@ const MAX_METADATA_STRING = 4_096;
 const MAX_STOP_REASON_LENGTH = 256;
 const MAX_SDK_EVENTS = 100_000;
 const QODER_UPGRADE_URL = "https://qoder.com/pricing?client=qoder";
+const QODER_QUOTA_CODES = new Set(["110", "112", "113", "114", "115", "116", "117", "118", "119", "122"]);
+const QODER_REQUEST_CODES = new Set(["406", "416", "430", "80411", "80412", "100400", "100401", "100403"]);
 async function flushSdkBackgroundWork(activeQuery, bridgeOptions) {
     const operations = [];
     if (bridgeOptions.memory && Object.keys(bridgeOptions.memory).length > 0) {
@@ -257,7 +259,7 @@ function resolveCwd(value) {
     }
 }
 function qoderEnvironment(environment) {
-    return mergedEnvironment(environment);
+    return applyBrowserAuthRegion(mergedEnvironment(environment));
 }
 const sessionTails = new Map();
 function waitForTurn(previous, signal) {
@@ -439,8 +441,8 @@ export class QoderLanguageModel {
     }
     async doStream(options) {
         const requestId = randomUUID().slice(0, 12);
-        const cli = findQoderCLI();
         const childEnvironment = qoderEnvironment(this.bridgeOptions.env);
+        const cli = findQoderCLI(false, childEnvironment);
         if (!hasQoderCredential(childEnvironment)) {
             throw new QoderAuthError(`No Qoder credentials found. ${cliLoginHint(childEnvironment)}`);
         }
@@ -448,8 +450,9 @@ export class QoderLanguageModel {
         const modelDiscoveryOptions = { cwd };
         if (this.bridgeOptions.proxy)
             modelDiscoveryOptions.proxy = this.bridgeOptions.proxy;
-        if (this.bridgeOptions.vpcEndpoint)
-            modelDiscoveryOptions.vpcEndpoint = this.bridgeOptions.vpcEndpoint;
+        const vpcEndpoint = browserAuthVpcEndpoint() ?? this.bridgeOptions.vpcEndpoint;
+        if (vpcEndpoint)
+            modelDiscoveryOptions.vpcEndpoint = vpcEndpoint;
         const resolved = getModel(this.modelId, childEnvironment, modelDiscoveryOptions);
         const model = resolved ?? getModel(DEFAULT_MODEL_ID, childEnvironment, modelDiscoveryOptions);
         if (!resolved) {
@@ -657,7 +660,8 @@ export class QoderLanguageModel {
                             });
                             if (externallyAborted || abortController.signal.aborted)
                                 return;
-                            qoderQuery = (this.bridgeOptions.query ?? sdkQuery)({ prompt, options: qoderOptions });
+                            const sdk = this.bridgeOptions.query ? null : await getSdkRuntime(childEnvironment);
+                            qoderQuery = (this.bridgeOptions.query ?? sdk.query)({ prompt, options: qoderOptions });
                             const activeQuery = qoderQuery;
                             if (externallyAborted || abortController.signal.aborted)
                                 return;
@@ -823,6 +827,9 @@ export class QoderLanguageModel {
         const proxy = this.bridgeOptions.proxy ?? process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY;
         if (proxy)
             opts.proxy = proxy;
+        const vpcEndpoint = browserAuthVpcEndpoint() ?? this.bridgeOptions.vpcEndpoint;
+        if (vpcEndpoint)
+            opts.vpcEndpoint = vpcEndpoint;
         if (this.bridgeOptions.memory)
             opts.memory = this.bridgeOptions.memory;
         if (this.bridgeOptions.securityScan)
@@ -1351,6 +1358,9 @@ function handleResult(m, state) {
             debug("Cost ledger write skipped:", describeError(err));
         }
     };
+    const errorCode = String(m.error_code ?? "");
+    if (errorCode === "105")
+        state.authExpired = true;
     const isAuthError = state.authExpired;
     const isError = isAuthError || m.is_error === true || m.subtype !== "success";
     if (isError) {
@@ -1358,16 +1368,26 @@ function handleResult(m, state) {
         const detail = Array.isArray(m.errors)
             ? redactSensitiveText((safeJsonStringify(m.errors) ?? "").slice(0, 4096))
             : "";
-        const quotaError = m.error_code === 118
+        const quotaError = QODER_QUOTA_CODES.has(errorCode)
             || /(?:credit|quota).*(?:limit|exceed)|(?:limit|exceed).*(?:credit|quota)/i.test(detail);
+        const queuedError = errorCode === "10605";
+        const requestRejected = QODER_REQUEST_CODES.has(errorCode);
         const subtype = isAuthError
             ? "authentication_failed"
             : quotaError
                 ? "quota_exceeded"
-                : typeof m.subtype === "string" ? m.subtype : "error_during_execution";
+                : queuedError
+                    ? "model_busy"
+                    : requestRejected
+                        ? "request_rejected"
+                        : typeof m.subtype === "string" ? m.subtype : "error_during_execution";
+        const retryAfter = Number(m.retryAfterSeconds ?? m.retry_after_seconds);
+        const busyDetail = queuedError
+            ? `${detail}${detail ? " " : ""}Qoder is processing a queued request; retry in ${Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(3600, Math.ceil(retryAfter)) : 30} seconds.`
+            : detail;
         const errorDetail = quotaError
             ? `${detail}${detail ? " " : ""}Upgrade: ${QODER_UPGRADE_URL}`
-            : detail;
+            : busyDetail;
         state.invalidSession = isInvalidSessionError(subtype, detail);
         const error = state.authExpired
             ? new QoderAuthError(`Qoder authentication expired during the request. ${cliLoginHint()}`)

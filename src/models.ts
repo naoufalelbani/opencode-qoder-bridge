@@ -1,4 +1,6 @@
-import { query, type ModelInfo } from "@qoder-ai/qoder-agent-sdk";
+import type { ModelInfo } from "@qoder-ai/qoder-agent-sdk";
+import { getSdkRuntime } from "./sdk-runtime.js";
+import { applyBrowserAuthRegion, browserAuthVpcEndpoint } from "./sdk-auth.js";
 import type { QoderModelDef } from "./types.js";
 import { findQoderCLI, getQoderRegion } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
@@ -140,10 +142,10 @@ interface CatalogState {
 
 const catalogStates = new Map<string, CatalogState>();
 let activeCatalogScope: string | undefined;
-let modelQueryFactory: typeof query = query;
+let modelQueryFactory: typeof import("@qoder-ai/qoder-agent-sdk").query | null = null;
 
 /** @internal Test seam for deterministic discovery lifecycle coverage. */
-export function setModelDiscoveryQueryFactory(factory: typeof query = query): void {
+export function setModelDiscoveryQueryFactory(factory: typeof import("@qoder-ai/qoder-agent-sdk").query | null = null): void {
   modelQueryFactory = factory;
 }
 
@@ -252,7 +254,7 @@ function cloneModels(models: DynamicModelEntry[] | null): DynamicModelEntry[] | 
 }
 
 function effectiveEnvironment(environment: Record<string, string | undefined>): Record<string, string | undefined> {
-  return mergedEnvironment(environment);
+  return applyBrowserAuthRegion(mergedEnvironment(environment));
 }
 
 function safeOption(value: unknown): string | undefined {
@@ -279,7 +281,7 @@ function catalogScope(environment: Record<string, string | undefined>, options: 
     : hasQoderCredential(environment) ? "local-login" : "anonymous";
   // Global and CN installs must not share a cached catalog: the CLI binary
   // name (qodercli vs qoderclicn) plus the region preference isolate them.
-  const cliPath = findQoderCLI();
+  const cliPath = findQoderCLI(false, environment);
   const parts = [
     `auth=${authScope}`,
     `region=${environment.QODER_REGION ?? ""}`,
@@ -519,7 +521,7 @@ async function doFetchDynamicModels(
     // automatic compatibility fallback; neither path requires users to run a
     // model-list command themselves.
     const runtimes: Array<string | undefined> = [undefined];
-    const cli = findQoderCLI();
+    const cli = findQoderCLI(false, environment);
     if (cli) runtimes.push(cli);
     const attempts = runtimes.map((runtimePath) => fetchFromRuntime(
       runtimePath,
@@ -582,10 +584,12 @@ async function fetchFromRuntime(
   const abortController = new AbortController();
   const abortAttempt = () => abortController.abort();
   overallSignal.addEventListener("abort", abortAttempt, { once: true });
-  let q: ReturnType<typeof query> | undefined;
+  let q: ReturnType<typeof import("@qoder-ai/qoder-agent-sdk").query> | undefined;
   const remaining = () => Math.max(1, deadline - Date.now());
   try {
-    q = modelQueryFactory({
+    const sdk = modelQueryFactory ? null : await getSdkRuntime(environment);
+    const vpcEndpoint = browserAuthVpcEndpoint() ?? safeOption(options.vpcEndpoint);
+    q = (modelQueryFactory ?? sdk!.query)({
       prompt: idlePrompt(abortController.signal),
       options: {
         auth: qoderAuth(environment),
@@ -595,7 +599,7 @@ async function fetchFromRuntime(
         env: environment,
         ...(runtimePath ? { pathToQoderCLIExecutable: runtimePath } : {}),
         ...(safeOption(options.proxy) ? { proxy: safeOption(options.proxy) } : {}),
-        ...(safeOption(options.vpcEndpoint) ? { vpcEndpoint: safeOption(options.vpcEndpoint) } : {}),
+        ...(vpcEndpoint ? { vpcEndpoint } : {}),
         ...(safeOption(options.cwd) ? { cwd: safeOption(options.cwd) } : {}),
         controlRequestTimeoutMs: Math.max(100, Math.min(5_000, remaining() - 100)),
         closeGraceMs: Math.min(CLEANUP_GRACE_MS, 500),

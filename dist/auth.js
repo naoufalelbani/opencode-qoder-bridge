@@ -16,6 +16,12 @@ function authFiles() {
 export function isAuthenticated() {
     return authFiles().some((p) => isRegularFile(p));
 }
+export function isAuthenticatedForRegion(region) {
+    const files = authFiles();
+    return region === "cn"
+        ? isRegularFile(files[2])
+        : isRegularFile(files[0]) || isRegularFile(files[1]);
+}
 /** Classify a resolved CLI path by region. Null when no CLI is resolved. */
 export function getQoderRegion(cliPath) {
     const resolved = cliPath ?? findQoderCLI();
@@ -31,7 +37,7 @@ export function regionPreference(environment = process.env) {
 /** Region-aware login hint for auth errors. */
 export function cliLoginHint(environment = process.env) {
     return regionPreference(environment) === "cn"
-        ? "Run the CN CLI login or set QODER_PERSONAL_ACCESS_TOKEN."
+        ? "Sign in with Qoder CN in OpenCode, run the CN CLI login, or set QODER_PERSONAL_ACCESS_TOKEN."
         : "Run `opencode auth login -p qoder` for browser sign-in, run `qoder login`, or set QODER_PERSONAL_ACCESS_TOKEN.";
 }
 function isRegularFile(p) {
@@ -75,10 +81,12 @@ function describeSearchLocations() {
  * Returns null when no separately installed CLI is found. The Qoder SDK can
  * still run through its bundled Worker runtime when credentials are present.
  */
-export function findQoderCLI(force = false) {
+export function findQoderCLI(force = false, environment = process.env) {
+    if (environment !== process.env)
+        return resolveCli(environment);
     if (!force && cachedCliPath !== undefined)
         return cachedCliPath;
-    cachedCliPath = resolveCli(process.env);
+    cachedCliPath = resolveCli(environment);
     debug(`Qoder CLI resolved: ${cachedCliPath ?? "none"} (region: ${getQoderRegion(cachedCliPath) ?? "none"})`);
     return cachedCliPath;
 }

@@ -1,11 +1,19 @@
 import { z } from "zod";
-import { runQoderMcpAuth, runQoderMcpStatus, runQoderModels, runQoderPlanMode, runQoderSessionFork, runQoderSessionReset, runQoderSessions, runQoderUsage, } from "./command-actions.js";
+import { runQoderMcpAuth, runQoderMcpStatus, runQoderCheckin, runQoderModels, runQoderPlanMode, runQoderSessionFork, runQoderSessionReset, runQoderSessions, runQoderUsage, } from "./command-actions.js";
 /** Preserves each entry's argument inference while erasing it from the table. */
 function spec(value) {
     return value;
 }
 export function createQoderToolSpecs(context) {
     return [
+        spec({
+            name: "qoder_checkin",
+            description: "Claim Qoder's daily credits for the browser-signed-in account.",
+            args: {},
+            async execute() {
+                return runQoderCheckin();
+            },
+        }),
         spec({
             name: "qoder_usage",
             description: "Show Qoder account usage and quota (live), plus accumulated session cost and token totals from the local ledger.",

@@ -1,4 +1,4 @@
-import { query, type ModelInfo } from "@qoder-ai/qoder-agent-sdk";
+import type { ModelInfo } from "@qoder-ai/qoder-agent-sdk";
 import type { QoderModelDef } from "./types.js";
 export declare const FALLBACK_MODELS: QoderModelDef[];
 export declare const DEFAULT_MODEL_ID = "auto";
@@ -35,7 +35,7 @@ export interface ModelDiscoveryOptions {
     timeoutMs?: number;
 }
 /** @internal Test seam for deterministic discovery lifecycle coverage. */
-export declare function setModelDiscoveryQueryFactory(factory?: typeof query): void;
+export declare function setModelDiscoveryQueryFactory(factory?: typeof import("@qoder-ai/qoder-agent-sdk").query | null): void;
 /**
  * Keep catalog entries that are usable model ids. Disabled entries are
  * dropped; anything else (BYOK, tagged, scene-filtered) stays so the bridge

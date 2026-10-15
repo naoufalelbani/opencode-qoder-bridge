@@ -15,6 +15,15 @@ a personal access token, and check live quota alongside local usage history.
 
 **OpenCode 1 + 2 · Official SDK · Flexible sign-in · Live quota · Local usage ledger**
 
+This bridge is for OpenCode users who want Qoder's official agent runtime,
+OpenCode-managed tools and MCP, and local usage history in one integration. It
+supports Qoder global and CN accounts through browser sign-in or the matching
+Qoder CLI login, including guided Qoder CN enterprise VPC browser sign-in. If
+you use magpie, see
+[@magpie-community/opencode-qoder-auth](https://www.npmjs.com/package/@magpie-community/opencode-qoder-auth),
+which supports OpenCode and magpie. The two plugins both register the `qoder`
+provider, so use one at a time.
+
 [Quick start](#quick-start) · [Features](#highlights) · [Security](#security)
 
 ![OpenCode Qoder Bridge architecture](./architecture.svg)
@@ -28,12 +37,11 @@ the official Qoder SDK.
 > endorsed by, or sponsored by Qoder or OpenCode. Use of the Qoder SDK and
 > services is subject to the [Qoder Product Service Terms](https://qoder.com/product-service).
 
-## What's new in v0.3.0
+## What's new in v0.4.0
 
-Version 0.3.0 brings the bridge to OpenCode 2 and adds browser sign-in for
-qoder.com accounts, while keeping OpenCode 1 support in the same package. Use
-the login method that fits your setup; every method feeds the official Qoder
-Agent SDK runtime.
+Version 0.4.0 adds Qoder CN browser sign-in, guided CN Enterprise VPC setup,
+and daily credit check-in. OpenCode 1 and 2 continue to use the official Qoder
+Agent SDK runtime with browser, CLI, and personal access token login options.
 
 ![Qoder sign-in choices flow through the official SDK](./docs/images/auth-options.svg)
 
@@ -52,6 +60,18 @@ Agent SDK runtime.
 - **Use the updated SDK and dependencies.** Qoder Agent SDK 1.0.51 and refreshed
   OpenCode, AI SDK, and security dependencies are included.
 
+## Regional browser sign-in and daily check-in
+
+Version 0.4.0 adds browser sign-in for Qoder CN and daily credit check-in.
+OpenCode 1 asks which Qoder region to use during OAuth sign-in. OpenCode 2
+provides separate **Sign in with Qoder CN** and **Sign in with Qoder CN
+Enterprise (VPC)** connection methods. CN browser
+accounts use the official `@qodercn-ai/qodercn-agent-sdk`; if Qoder refuses to
+exchange the device token for a job token, the bridge uses and refreshes the CN
+device token directly. Run `/qoder_checkin` to claim daily credits. Global
+accounts also need Qoder desktop or CLI's `runtime-info` helper for Qoder's
+native campaign identity; set `QODER_RUNTIME_INFO` if it is installed elsewhere.
+
 Together, these updates make setup more flexible, bring model selection up
 sooner, and make OpenCode 2 file operations work with the expected tool schema.
 Usage history, live quota, sessions, MCP support, and cost reporting remain part
@@ -60,10 +80,11 @@ of the same integration.
 ## Highlights
 
 - **One plugin for OpenCode 1 and 2** — keep your Qoder setup across supported OpenCode generations.
-- **Official Qoder runtime** — uses `@qoder-ai/qoder-agent-sdk` directly for model requests and agent features; no vendored or patched SDK copy.
-- **Sign in your way** — use browser authorization for qoder.com, an existing Qoder CLI login, or a personal access token. CN region users can use the CN CLI flow.
+- **Official Qoder runtimes** — uses Qoder's regional Agent SDK for model requests and agent features; no vendored or patched SDK copies.
+- **Sign in your way** — use browser authorization for qoder.com or qoder.cn, an existing regional Qoder CLI login, or a personal access token.
 - **Tools that work with OpenCode** — streams text and reasoning, hands Qoder tool calls to OpenCode host tools, and bridges configured MCP servers.
 - **See account and session usage** — query live Qoder quota and inspect local per-turn token and cost history with `qoder_usage` or the statusline command.
+- **Claim daily credits** — run `qoder_checkin` for the browser-signed-in Qoder account.
 - **Start with models quickly** — OpenCode 2 can register cached or built-in models before live discovery finishes.
 - **Handle images and long sessions** — accepts common local image paths and data URLs; supports configurable session persistence, abort propagation, and bounded runtime limits.
 
@@ -73,14 +94,23 @@ of the same integration.
 
 1. Use Node.js 22.22.2 or newer, or Node.js 24.15.0 or newer.
 
-2. Install OpenCode and this plugin:
+2. Install OpenCode:
 
    ```bash
    npm install -g opencode-ai
-   npm install opencode-qoder-bridge
    ```
 
-3. Sign in to Qoder from OpenCode:
+3. Add the plugin to `~/.config/opencode/opencode.json` (OpenCode 2):
+
+   ```json
+   { "plugins": ["opencode-qoder-bridge"] }
+   ```
+
+   OpenCode downloads the plugin from npm when it starts. You do not need to
+   install the plugin globally or in a separate project first. OpenCode 1
+   uses the singular `plugin` key; see [Install](#install).
+
+4. Sign in to Qoder from OpenCode:
 
    ```bash
    opencode auth login qoder --method oauth
@@ -88,15 +118,23 @@ of the same integration.
 
    Authorize the URL shown in your browser. You can also open the OpenCode
    connection picker and choose **Qoder (opencode-qoder-bridge)**, then select
-   **Sign in with Qoder via opencode-qoder-bridge**.
+   a Qoder sign-in method. For CN enterprise accounts, choose
+   **Sign in with Qoder CN Enterprise (VPC)** and enter your instance name
+   (for example, `acme`) or its HTTPS VPC address. The VPC is saved with that
+   browser credential, so requests and refreshes continue to use the matching
+   private endpoints.
    OpenCode stores the job token and refresh token in its auth store; the bridge
-   refreshes them before SDK requests. This option currently supports
-   qoder.com accounts. For Qoder CN, use the CN CLI login below.
+   refreshes them before SDK requests. Choose Qoder CN in the sign-in prompt to
+   authorize a qoder.cn account. CN device tokens are refreshed through the CN
+   token endpoint when Qoder does not issue a job token.
 
-   Alternatively, authenticate with a Qoder PAT:
+   Alternatively, authenticate with a Qoder PAT. Create it at
+   [Qoder account integrations](https://qoder.com/account/integrations), then
+   set it in the environment of the shell that launches OpenCode:
 
    ```bash
    export QODER_PERSONAL_ACCESS_TOKEN="pt-..."
+   opencode
    ```
 
    Or use the Qoder CLI login flow:
@@ -104,6 +142,10 @@ of the same integration.
    ```bash
    qoder login
    ```
+
+   If the SDK reports that its runtime is missing, follow the
+   [SDK runtime installation](#sdk-runtime-installation) steps. A separately
+   installed Qoder CLI can provide the runtime as a fallback.
 
 ### Security
 
@@ -114,31 +156,36 @@ and pushes to `main`. See the [security policy](./SECURITY.md) for private
 vulnerability reporting and credential-handling notes.
 
 Browser credentials are stored by OpenCode and refreshed for SDK requests. The
-usage ledger is local to the bridge state directory. Keep `bypassPermissions`
-for trusted, disposable workspaces only; OpenCode remains responsible for
-confirming and executing host-tool actions.
+usage ledger and the device token used by daily check-in are stored in the
+bridge state directory with mode `0600` where the operating system supports
+POSIX file permissions. Keep
+`bypassPermissions` for trusted, disposable workspaces only; OpenCode remains
+responsible for confirming and executing host-tool actions.
 
-The bridge uses the same SDK runtime for all three methods. A PAT takes first
-priority. When a Qoder CLI login is present, the bridge uses that login by
-default, matching the account and authentication path used by `qoder` in a
-terminal. If there is no CLI login, a saved OpenCode browser sign-in is used.
+The bridge uses the official SDK build for the selected Qoder region. A PAT
+takes first priority. When a matching Qoder CLI login is present, the bridge
+uses that login by default, matching the account and authentication path used
+by `qoder` in a terminal. If there is no CLI login, a saved OpenCode browser
+sign-in is used.
 Set `QODER_AUTH_MODE=browser` to use the saved browser sign-in when both are
-present, or `QODER_AUTH_MODE=cli` to require the CLI path. The SDK's host job-token callback is
-marked internal in SDK 1.0.51, so browser sign-in needs an authenticated check
-when upgrading the SDK.
+present, or `QODER_AUTH_MODE=cli` to require the CLI path. The package includes
+both regional SDKs because they target separate Qoder hosts.
 
 ### Qoder CN region
 
-Both global and CN regions work with this same package — no separate
-install, no config change. The bridge auto-detects whichever login/CLI is
-present:
+Both global and CN regions work with this same package — no separate install.
+Use the matching browser sign-in method or log in with the regional CLI:
 
 - Global: `qoder login` → `~/.qoder/.auth/user`, binary `qodercli`
   (`~/.qoder/local/`, `~/.qoder/bin/qodercli/`, or `PATH`).
 - CN: CN-CLI login → `~/.qoder-cn/.auth/user`, binary `qoderclicn`
   (`~/.qoder-cn/local/`, `~/.qoder-cn/bin/qoderclicn/`, or `PATH`).
 
-Just install and log in with the CN CLI, then restart OpenCode. Discovery
+For OpenCode 1, `opencode auth login qoder --method oauth` asks which region to
+use; choose the separate **Qoder CN Enterprise (VPC)** sign-in method to enter
+an enterprise instance. In OpenCode 2, choose the matching Qoder CN sign-in in
+the connection picker. For enterprise browser accounts, select **Sign in with
+Qoder CN Enterprise (VPC)** and enter the instance name or HTTPS address. Discovery
 order is `QODER_CLI_PATH` override → `PATH` (`qodercli`, then `qoderclicn`
 per directory) → `~/.qoder/local` → `~/.qoder-cn/local` → latest versioned
 binary across both `bin/` directories. If both regions are installed, global
@@ -146,17 +193,23 @@ takes precedence on ties; versioned binaries otherwise resolve to the latest
 version. To force one region, set `QODER_REGION=global|cn` (default `auto`)
 or pin `QODER_CLI_PATH` to an explicit executable. The `qoder_usage` report
 shows the detected region, and `QODER_BRIDGE_DEBUG=1` logs the resolved CLI
-path and region. For CN VPC/scene accounts, the existing `QODER_SCENE`,
+path and region. For CN CLI VPC/scene accounts, the existing `QODER_SCENE`,
 `QODERCN_VPC_ENDPOINT` (also `QODER_VPC_ENDPOINT`, `QODER_API_URL`)
-environment variables are honored for model discovery.
+environment variables are honored for model discovery. Browser sign-in can
+instead save a VPC endpoint on the account and use it for chat, refresh,
+usage, and check-in requests.
+
+### SDK runtime installation
 
 With npm 12, dependency install scripts may be blocked by the consuming
 project's script-approval policy. To download the SDK's bundled Worker
-runtime, approve and rebuild the installed SDK version from that project:
+runtime, approve and rebuild each SDK from that project:
 
 ```bash
 npm install-scripts approve @qoder-ai/qoder-agent-sdk
 npm rebuild @qoder-ai/qoder-agent-sdk
+npm install-scripts approve @qodercn-ai/qodercn-agent-sdk
+npm rebuild @qodercn-ai/qodercn-agent-sdk
 ```
 
 If you use a separately installed `qoder` CLI or intentionally set
@@ -497,7 +550,8 @@ autocomplete list:
 
 The implementations remain registered, but the TUI marks commands as hidden
 when their prerequisites are absent; it does not disable or delete them. With
-the default configuration, only `/qoder_usage` and `/qoder_models` appear.
+the default configuration, `/qoder_usage`, `/qoder_models`, and
+`/qoder_checkin` appear.
 Session commands appear when session persistence, `sessionKey`, or `sessionId`
 is configured. MCP commands appear when at least one MCP server is configured.
 `/qoder_plan_mode` remains hidden because it currently provides guidance only.
@@ -505,6 +559,7 @@ is configured. MCP commands appear when at least one MCP server is configured.
 | Command | Arguments | Purpose |
 |---------|-----------|---------|
 | `/qoder_usage` | none | Show live quota and local cost/token totals. |
+| `/qoder_checkin` | none | Claim daily credits for the browser-signed-in account. |
 | `/qoder_models` | none | List available Qoder models and capabilities. |
 | `/qoder_sessions` | optional directory and/or limit | List recent Qoder sessions. |
 | `/qoder_session_reset` | optional key, or `all` | Reset persisted session mappings. |
@@ -623,6 +678,7 @@ Enable autonomous turn-completion skill analysis and recommendations:
 The plugin registers several built-in OpenCode tools:
 
 - `qoder_usage` — Live account balance, quota percentages, and local cost ledger totals.
+- `qoder_checkin` — Claim daily credits for the browser-signed-in account.
 - `qoder_models` — List known Qoder models, context limits, vision/reasoning flags, and multipliers.
 - `qoder_sessions` — List recent Qoder sessions, session IDs, branches, and timestamps via SDK `listSessions()`.
 - `qoder_session_reset` — Forget the persisted Qoder session mapping for the active project.
