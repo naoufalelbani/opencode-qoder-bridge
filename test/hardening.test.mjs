@@ -349,6 +349,45 @@ describe("result metadata shape", () => {
     assert.match(error?.error?.message ?? "", /https:\/\/qoder\.com\/pricing\?client=qoder/);
   });
 
+  test("classifies Qoder's additional quota codes consistently", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "result", subtype: "error_during_execution", is_error: true, error_code: 110,
+      errors: ["Plan credits are exhausted."],
+    }, state);
+    assert.equal(parts.find((part) => part.type === "error")?.error?.subtype, "quota_exceeded");
+  });
+
+  test("marks queued model responses as retryable guidance", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "result", subtype: "error_during_execution", is_error: true, error_code: 10605,
+      retryAfterSeconds: 12, errors: ["Model is queued."],
+    }, state);
+    const error = parts.find((part) => part.type === "error")?.error;
+    assert.equal(error?.subtype, "model_busy");
+    assert.match(error?.message ?? "", /retry in 12 seconds/i);
+  });
+
+  test("classifies a Qoder request refusal separately from runtime failures", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "result", subtype: "error_during_execution", is_error: true, error_code: 416,
+      errors: ["Input is too long."],
+    }, state);
+    assert.equal(parts.find((part) => part.type === "error")?.error?.subtype, "request_rejected");
+  });
+
+  test("treats Qoder login-expired code as an authentication failure", () => {
+    const { parts, state } = makeState();
+    handleSdkMessage({
+      type: "result", subtype: "error_during_execution", is_error: true, error_code: 105,
+      errors: ["Login expired."],
+    }, state);
+    assert.equal(state.authExpired, true);
+    assert.equal(parts.find((part) => part.type === "error")?.error?.code, "QODER_AUTH_FAILED");
+  });
+
   test("duplicate tool events produce one OpenCode tool call", () => {
     const { parts, state } = makeState({ functionToolNames: new Set(["read"]) });
     const start = {

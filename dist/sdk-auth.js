@@ -1,6 +1,5 @@
-import { accessToken, accessTokenFromEnv, jobToken, qodercliAuth } from "@qoder-ai/qoder-agent-sdk";
-import { isAuthenticated } from "./auth.js";
-import { refreshQoderJobToken } from "./device-sign-in.js";
+import { isAuthenticated, isAuthenticatedForRegion } from "./auth.js";
+import { decodeRefreshToken, refreshQoderBrowserToken } from "./device-sign-in.js";
 import { QoderAuthError } from "./errors.js";
 import { readStoredBrowserCredential, writeStoredBrowserCredential } from "./opencode-auth-store.js";
 export const QODER_PAT_ENV = "QODER_PERSONAL_ACCESS_TOKEN";
@@ -11,7 +10,7 @@ let refreshInFlight = null;
 const issuedTokens = new Map();
 /** OpenCode owns the saved OAuth credential; the bridge only holds accessors. */
 export function configureBrowserAuth(source) {
-    if (browserSource?.accountId !== source?.accountId) {
+    if (browserSource?.accountId !== source?.accountId || browserSource?.region !== source?.region || browserSource?.vpcEndpoint !== source?.vpcEndpoint) {
         refreshInFlight = null;
         issuedTokens.clear();
     }
@@ -35,18 +34,44 @@ function ensureBrowserSource(environment) {
             configureBrowserAuth(null);
         return;
     }
-    if (browserSource?.storeBacked && browserSource.accountId === saved.accountId)
+    if (browserSource?.storeBacked
+        && browserSource.accountId === saved.accountId
+        && browserSource.region === decodeRefreshToken(saved.refresh).region)
         return;
     configureBrowserAuth({
         accountId: saved.accountId,
+        region: decodeRefreshToken(saved.refresh).region,
         storeBacked: true,
         read: async () => readStoredBrowserCredential(environment),
         write: (updated, previous) => writeStoredBrowserCredential(updated, previous, environment),
     });
 }
+function browserMatchesEnvironment(environment) {
+    if (!browserSource)
+        return false;
+    const requested = environment.QODER_REGION?.trim().toLowerCase();
+    const region = browserSource.region ?? "global";
+    return (requested !== "cn" && requested !== "global") || region === requested;
+}
 export function browserAuthIdentity(environment = process.env) {
     ensureBrowserSource(environment);
-    return browserSource ? browserSource.accountId ?? "browser-account" : undefined;
+    if (!browserSource)
+        return undefined;
+    const identity = browserSource.accountId ?? "browser-account";
+    return browserSource.region === "cn" ? `cn:${identity}` : identity;
+}
+export function browserAuthRegion() {
+    return browserSource?.region;
+}
+export function browserAuthVpcEndpoint() {
+    return browserSource?.vpcEndpoint;
+}
+/** Keep a saved VPC credential on the CN SDK and CN CLI search path. */
+export function applyBrowserAuthRegion(environment) {
+    if (browserSource?.vpcEndpoint && environment.QODER_REGION?.trim().toLowerCase() !== "global") {
+        return { ...environment, QODER_REGION: "cn" };
+    }
+    return environment;
 }
 function rememberIssued(requestId, token) {
     if (!requestId)
@@ -77,7 +102,7 @@ async function currentJobToken(requestId, reason, signal) {
                 throw new QoderAuthError("Qoder browser sign-in has expired; sign in again.");
             if (latest.access !== current.access && latest.expires > Date.now() + REFRESH_LEAD_MS)
                 return latest;
-            const renewed = await refreshQoderJobToken(latest.refresh, signal);
+            const renewed = await refreshQoderBrowserToken(latest.refresh, signal);
             const updated = { ...latest, ...renewed, type: "oauth" };
             try {
                 await source.write(updated, latest);
@@ -110,31 +135,49 @@ export function qoderAuth(environment = process.env) {
         // Keep the SDK's env-backed auth shape for normal values, but avoid sending
         // accidental surrounding whitespace when a caller configured a token that
         // was copied from a shell or secret store.
-        return token === token.trim() ? accessTokenFromEnv(QODER_PAT_ENV) : accessToken(token.trim());
+        return { type: "accessToken", accessToken: token.trim() };
     }
     const mode = environment[QODER_AUTH_MODE_ENV]?.trim().toLowerCase();
+    if (mode === "browser" && browserMatchesEnvironment(environment)) {
+        return {
+            type: "jobToken",
+            fetchJobToken: (request, options) => currentJobToken(request.requestId, request.reason, options.signal),
+        };
+    }
+    if (mode !== "cli" && browserSource?.vpcEndpoint && browserMatchesEnvironment(environment)) {
+        return {
+            type: "jobToken",
+            fetchJobToken: (request, options) => currentJobToken(request.requestId, request.reason, options.signal),
+        };
+    }
     // The installed Qoder CLI is the fastest known path on machines already
     // logged in with it. Browser auth remains the fallback and can be selected
     // explicitly when the two sign-ins belong to different accounts.
-    if (environment.QODER_REGION === "cn" || mode === "cli" || (mode !== "browser" && isAuthenticated())) {
-        return qodercliAuth();
+    if (mode === "cli" || (mode !== "browser" && environment.QODER_REGION === "cn" && isAuthenticatedForRegion("cn"))
+        || (environment.QODER_REGION !== "cn" && mode !== "browser" && isAuthenticated())) {
+        return { type: "qodercli" };
     }
-    if (browserSource) {
-        return jobToken((request, options) => currentJobToken(request.requestId, request.reason, options.signal));
+    if (browserMatchesEnvironment(environment)) {
+        return {
+            type: "jobToken",
+            fetchJobToken: (request, options) => currentJobToken(request.requestId, request.reason, options.signal),
+        };
     }
-    return qodercliAuth();
+    return { type: "qodercli" };
 }
 export function hasQoderCredential(environment = process.env) {
     ensureBrowserSource(environment);
     if (hasQoderPAT(environment))
         return true;
-    if (environment.QODER_REGION === "cn")
-        return isAuthenticated();
     const mode = environment[QODER_AUTH_MODE_ENV]?.trim().toLowerCase();
     if (mode === "cli")
         return isAuthenticated();
     if (mode === "browser")
-        return browserSource !== null;
-    return isAuthenticated() || browserSource !== null;
+        return browserMatchesEnvironment(environment);
+    if (mode !== "cli" && browserSource?.vpcEndpoint && browserMatchesEnvironment(environment))
+        return true;
+    if (environment.QODER_REGION === "cn")
+        return isAuthenticatedForRegion("cn") || browserSource?.region === "cn";
+    return isAuthenticated() || browserMatchesEnvironment(environment);
 }
 //# sourceMappingURL=sdk-auth.js.map

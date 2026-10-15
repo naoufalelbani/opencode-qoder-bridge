@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   runQoderMcpAuth,
   runQoderMcpStatus,
+  runQoderCheckin,
   runQoderModels,
   runQoderPlanMode,
   runQoderSessionFork,
@@ -40,6 +41,14 @@ export function createQoderToolSpecs(
   context: () => QoderCommandContext,
 ): readonly QoderToolSpec[] {
   return [
+    spec({
+      name: "qoder_checkin",
+      description: "Claim Qoder's daily credits for the browser-signed-in account.",
+      args: {},
+      async execute() {
+        return runQoderCheckin();
+      },
+    }),
     spec({
       name: "qoder_usage",
       description:

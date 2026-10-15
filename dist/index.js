@@ -1,13 +1,14 @@
 import { tool } from "@opencode-ai/plugin";
 import { FALLBACK_MODELS, fetchDynamicModels, getCachedDynamicModels } from "./models.js";
-import { configureBrowserAuth, hasQoderPAT, QODER_PAT_ENV } from "./sdk-auth.js";
-import { qoderDeviceSignIn } from "./device-sign-in.js";
+import { browserAuthVpcEndpoint, configureBrowserAuth, hasQoderPAT, QODER_PAT_ENV } from "./sdk-auth.js";
+import { decodeRefreshToken, qoderDeviceSignIn } from "./device-sign-in.js";
+import { normalizeCnVpcEndpoint } from "./cn-vpc.js";
 import { cliLoginHint, isAuthenticated } from "./auth.js";
 import { bridgeMcpServers } from "./mcp-bridge.js";
 import { ensureTuiRegistered } from "./tui-register.js";
 import { debug, describeError, isDebugEnabled, warn } from "./logger.js";
 import { isRecord, MODEL_STARTUP_DISCOVERY_TIMEOUT_MS, normalizeBridgeSettings, } from "./bridge-options.js";
-import { runQoderMcpAuth, runQoderMcpStatus, runQoderModels, runQoderPlanMode, runQoderSessionFork, runQoderSessionReset, runQoderSessions, runQoderUsage, } from "./command-actions.js";
+import { runQoderMcpAuth, runQoderMcpStatus, runQoderCheckin, runQoderModels, runQoderPlanMode, runQoderSessionFork, runQoderSessionReset, runQoderSessions, runQoderUsage, } from "./command-actions.js";
 const PROVIDER_URL = new URL("./provider.js", import.meta.url).href;
 const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
@@ -72,6 +73,8 @@ const plugin = async (input) => {
             return;
         configureBrowserAuth({
             accountId: initial.accountId,
+            region: decodeRefreshToken(initial.refresh).region,
+            vpcEndpoint: decodeRefreshToken(initial.refresh).vpcEndpoint,
             read,
             write: saveBrowserCredential,
         });
@@ -169,12 +172,38 @@ const plugin = async (input) => {
             methods: [
                 {
                     type: "oauth",
-                    label: "Sign in with Qoder (qoder.com) in your browser",
-                    authorize: qoderDeviceSignIn,
+                    label: "Sign in with Qoder in your browser",
+                    prompts: [{
+                            type: "select",
+                            key: "region",
+                            message: "Qoder region",
+                            options: [
+                                { label: "Qoder (qoder.com)", value: "global" },
+                                { label: "Qoder CN (qoder.cn)", value: "cn" },
+                            ],
+                        }],
+                    authorize: (answers) => qoderDeviceSignIn({}, answers?.region === "cn" ? "cn" : "global"),
+                },
+                {
+                    type: "oauth",
+                    label: "Sign in with Qoder CN Enterprise (VPC)",
+                    prompts: [{
+                            type: "text",
+                            key: "vpc",
+                            message: "Enterprise VPC instance name or HTTPS address",
+                            placeholder: "acme or https://acme.vpc.qoder.com.cn",
+                            validate: (value) => normalizeCnVpcEndpoint(value) ? undefined : "Enter a valid Qoder CN VPC instance name or HTTPS address.",
+                        }],
+                    authorize: (answers) => {
+                        const endpoint = normalizeCnVpcEndpoint(answers?.vpc);
+                        if (!endpoint)
+                            throw new Error("Enter a valid Qoder CN enterprise VPC instance name or HTTPS address.");
+                        return qoderDeviceSignIn({}, "cn", endpoint);
+                    },
                 },
                 {
                     type: "api",
-                    label: `Use ${QODER_PAT_ENV} or run qoder login in your terminal (CN region: the CN CLI login)`,
+                    label: `Create a PAT at qoder.com/account/integrations and set ${QODER_PAT_ENV}, or run qoder login`,
                     prompts: [],
                     async authorize() {
                         if (!hasQoderPAT() && !isAuthenticated()) {
@@ -198,13 +227,18 @@ const plugin = async (input) => {
                 // credential is available. Discover the live catalog through the SDK.
                 configureBrowserAuth({
                     accountId: auth.accountId,
+                    region: decodeRefreshToken(auth.refresh).region,
+                    vpcEndpoint: decodeRefreshToken(auth.refresh).vpcEndpoint,
                     read: async () => current,
                     write: async (credential) => {
                         await saveBrowserCredential(credential);
                         current = credential;
                     },
                 });
-                const dynamic = await fetchDynamicModels(true, modelEnvironment, modelOptions);
+                const dynamic = await fetchDynamicModels(true, modelEnvironment, {
+                    ...modelOptions,
+                    ...(browserAuthVpcEndpoint() ? { vpcEndpoint: browserAuthVpcEndpoint() } : {}),
+                });
                 if (!dynamic?.length)
                     return provider.models;
                 const fallback = provider.models.auto ?? Object.values(provider.models)[0];
@@ -236,6 +270,13 @@ const plugin = async (input) => {
             },
         },
         tool: {
+            qoder_checkin: tool({
+                description: "Claim Qoder's daily credits for the browser-signed-in account.",
+                args: {},
+                async execute() {
+                    return runQoderCheckin();
+                },
+            }),
             qoder_usage: tool({
                 description: "Show Qoder account usage and quota (live), plus accumulated session cost and token totals from the local ledger.",
                 args: {},

@@ -1,6 +1,7 @@
-import { forkSession, listSessions } from "@qoder-ai/qoder-agent-sdk";
+import { getSdkRuntime } from "./sdk-runtime.js";
 import { listModels } from "./models.js";
 import { getLiveUsage, formatUsageReport } from "./usage.js";
+import { claimDailyQoderCredits, explainQoderCheckinError } from "./checkin.js";
 import { getQoderRegion } from "./auth.js";
 import { summarize, formatCost } from "./cost.js";
 import { clearAllSessions, deleteQoderSessionForCwd, getQoderSessionForCwd } from "./session-store.js";
@@ -11,6 +12,12 @@ const CONTROL_CHAR_TEST = /[\u0000-\u001f\u007f-\u009f]/;
 const MAX_ARGUMENTS = 32_768;
 const MCP_AUTH_TTL_MS = 10 * 60 * 1000;
 export const QODER_COMMANDS = [
+    {
+        name: "qoder_checkin",
+        title: "Qoder Daily Check-in",
+        description: "Claim Qoder's daily credits for the browser-signed-in account.",
+        argumentHint: "",
+    },
     {
         name: "qoder_usage",
         title: "Qoder Usage",
@@ -128,6 +135,14 @@ export async function runQoderUsage(_context) {
         return { title: "Qoder Usage", output: `Failed to load usage: ${describeError(error)}`, variant: "error" };
     }
 }
+export async function runQoderCheckin() {
+    try {
+        return { title: "Qoder Daily Check-in", output: await claimDailyQoderCredits(), variant: "success" };
+    }
+    catch (error) {
+        return { title: "Qoder Daily Check-in", output: explainQoderCheckinError(error), variant: "error" };
+    }
+}
 export async function runQoderModels(context) {
     try {
         const models = listModels(context.modelEnvironment ?? process.env, context.modelOptions ?? {});
@@ -143,11 +158,12 @@ export async function runQoderModels(context) {
         return { title: "Qoder Models", output: `Failed to list models: ${describeError(error)}`, variant: "error" };
     }
 }
-export async function runQoderSessions(_context, input = {}) {
+export async function runQoderSessions(context, input = {}) {
     try {
         const limit = typeof input.limit === "number" && input.limit > 0 ? input.limit : 10;
         const dir = typeof input.dir === "string" && input.dir.trim() ? input.dir.trim() : undefined;
-        const sessionsResult = await listSessions({
+        const sdk = await getSdkRuntime(context.modelEnvironment ?? process.env);
+        const sessionsResult = await sdk.listSessions({
             limit: Math.max(1, Math.min(100, Math.floor(limit))),
             ...(dir ? { dir } : {}),
         });
@@ -224,7 +240,8 @@ export async function runQoderSessionFork(context, input = {}) {
         const upToMessageId = typeof input.upToMessageId === "string" && input.upToMessageId.trim()
             ? input.upToMessageId.trim()
             : undefined;
-        const forked = await forkSession(sourceId, {
+        const sdk = await getSdkRuntime(context.modelEnvironment ?? process.env);
+        const forked = await sdk.forkSession(sourceId, {
             dir,
             ...(title ? { title } : {}),
             ...(upToMessageId ? { upToMessageId } : {}),
@@ -365,6 +382,8 @@ export async function executeQoderCommand(name, rawArguments, context) {
         return { title: "Qoder Command", output: "Command arguments are invalid or too long.", variant: "error" };
     }
     switch (name) {
+        case "qoder_checkin":
+            return runQoderCheckin();
         case "qoder_usage":
             return runQoderUsage(context);
         case "qoder_models":

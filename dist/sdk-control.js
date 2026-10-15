@@ -1,9 +1,9 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { startup } from "@qoder-ai/qoder-agent-sdk";
+import { getSdkRuntime } from "./sdk-runtime.js";
 import { findQoderCLI, cliLoginHint } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
-import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
+import { applyBrowserAuthRegion, browserAuthVpcEndpoint, hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { QoderAuthError } from "./errors.js";
 import { withTimeout } from "./async-utils.js";
 import { redactSensitiveText } from "./logger.js";
@@ -27,7 +27,7 @@ function resolveCwd(value) {
     }
 }
 function childEnvironment(environment) {
-    return mergedEnvironment(environment);
+    return applyBrowserAuthRegion(mergedEnvironment(environment));
 }
 function boundedMilliseconds(value, fallback, max) {
     if (value === undefined)
@@ -53,15 +53,16 @@ function controlOptions(bridgeOptions, cwd, abortController) {
     const closeGraceMs = boundedMilliseconds(bridgeOptions.closeGraceMs, 2_000, MCP_CONTROL_TIMEOUT_MS);
     if (closeGraceMs !== undefined)
         options.closeGraceMs = closeGraceMs;
-    const cli = findQoderCLI();
+    const cli = findQoderCLI(false, environment);
     if (cli)
         options.pathToQoderCLIExecutable = cli;
     if (bridgeOptions.env)
         options.env = environment;
     if (bridgeOptions.proxy)
         options.proxy = bridgeOptions.proxy;
-    if (bridgeOptions.vpcEndpoint)
-        options.vpcEndpoint = bridgeOptions.vpcEndpoint;
+    const vpcEndpoint = browserAuthVpcEndpoint() ?? bridgeOptions.vpcEndpoint;
+    if (vpcEndpoint)
+        options.vpcEndpoint = vpcEndpoint;
     if (bridgeOptions.mcpServers && Object.keys(bridgeOptions.mcpServers).length > 0) {
         options.mcpServers = bridgeOptions.mcpServers;
     }
@@ -85,7 +86,8 @@ export async function openSdkControlSession(bridgeOptions, cwd) {
     let activeQuery;
     let closed = false;
     try {
-        warm = await startup({
+        const sdk = await getSdkRuntime(environment);
+        warm = await sdk.startup({
             options: controlOptions(bridgeOptions, cwd, abortController),
             initializeTimeoutMs: MCP_INITIALIZE_TIMEOUT_MS,
         });

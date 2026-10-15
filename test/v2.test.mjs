@@ -183,9 +183,12 @@ describe("OpenCode 2 provider", () => {
     const command = methods.find((method) => method.method.type === "command");
     assert.ok(oauth, "oauth method must be registered");
     assert.equal(oauth.method.label, "Sign in with Qoder via opencode-qoder-bridge");
-    assert.equal(oauth.label({ type: "oauth", metadata: { accountId: "user@example.test" } }), "user@example.test (opencode-qoder-bridge)");
+    assert.equal(oauth.label({ type: "oauth", metadata: { accountId: "user@example.test" } }), "Qoder: user@example.test (opencode-qoder-bridge)");
     assert.equal(typeof oauth.authorize, "function");
     assert.equal(typeof oauth.refresh, "function");
+    const vpc = methods.find((method) => method.method.id === "oauth-cn-vpc");
+    assert.ok(vpc, "CN VPC sign-in method must be registered");
+    assert.equal(vpc.method.form?.[0]?.key, "vpc");
     assert.deepEqual(env?.method.names, ["QODER_PERSONAL_ACCESS_TOKEN"]);
     assert.ok(Array.isArray(command?.method.command) && command.method.command.length > 0);
     await cleanup();
@@ -205,7 +208,8 @@ describe("OpenCode 2 provider", () => {
 
   test("can disable the Qoder CLI and personal-token login methods", async (t) => {
     const { methods, cleanup } = await runSetup(t, { disableQoderCliLogin: true });
-    assert.deepEqual(methods.map((method) => method.method.type), ["oauth"]);
+    assert.deepEqual(methods.map((method) => method.method.id), ["oauth", "oauth-cn", "oauth-cn-vpc"]);
+    assert.ok(methods.every((method) => method.method.type === "oauth"));
     await cleanup();
   });
 

@@ -7,6 +7,30 @@ import { join } from "node:path";
 const DIST_URL = new URL("../dist/", import.meta.url);
 const DIST = DIST_URL.href;
 
+describe("Qoder CN enterprise VPC endpoints", () => {
+  test("accepts a name or HTTPS address and routes to the gateway", async () => {
+    const { normalizeCnVpcEndpoint, cnVpcOpenApiEndpoint } = await import(DIST + "cn-vpc.js");
+    assert.equal(normalizeCnVpcEndpoint("acme"), "acme-gateway.vpc.qoder.com.cn");
+    assert.equal(normalizeCnVpcEndpoint("https://acme-openapi.vpc.qoder.com.cn"), "acme-gateway.vpc.qoder.com.cn");
+    assert.equal(cnVpcOpenApiEndpoint("acme-gateway.vpc.qoder.com.cn"), "acme-openapi.vpc.qoder.com.cn");
+  });
+
+  test("rejects non-HTTPS, foreign hosts, paths, and malformed instance names", async () => {
+    const { normalizeCnVpcEndpoint } = await import(DIST + "cn-vpc.js");
+    for (const value of ["http://acme.vpc.qoder.com.cn", "https://acme.example.com", "acme/path", "-bad", "acme.vpc.qoder.com.cn/path"]) {
+      assert.equal(normalizeCnVpcEndpoint(value), undefined, value);
+    }
+  });
+
+  test("keeps the private endpoint attached to rotated CN refresh credentials", async () => {
+    const { encodeRefreshToken, decodeRefreshToken } = await import(DIST + "device-sign-in.js");
+    const token = encodeRefreshToken("cn", "job", "refresh-value", "acme-gateway.vpc.qoder.com.cn");
+    assert.deepEqual(decodeRefreshToken(token), {
+      region: "cn", kind: "job", token: "refresh-value", vpcEndpoint: "acme-gateway.vpc.qoder.com.cn",
+    });
+  });
+});
+
 const SAVED = {};
 
 function saveEnv() {

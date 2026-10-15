@@ -63,7 +63,7 @@ describe("provider", () => {
       const { qoderAuth } = await import(DIST + "sdk-auth.js");
       assert.deepEqual(qoderAuth(), {
         type: "accessToken",
-        accessToken: { envVar: "QODER_PERSONAL_ACCESS_TOKEN" },
+        accessToken: "pt-test-only",
       });
     } finally {
       if (old === undefined) delete process.env.QODER_PERSONAL_ACCESS_TOKEN;
@@ -841,7 +841,7 @@ describe("local TUI commands", () => {
     );
     assert.deepEqual(
       layers[0].commands.filter((command) => !command.hidden).map((command) => command.slashName),
-      ["qoder_usage", "qoder_models"],
+      ["qoder_checkin", "qoder_usage", "qoder_models"],
     );
     assert.equal(layers[0].commands.find((command) => command.slashName === "qoder_plan_mode").hidden, true);
     assert.equal(layers[0].commands.find((command) => command.slashName === "qoder_plan_mode").enabled, undefined);

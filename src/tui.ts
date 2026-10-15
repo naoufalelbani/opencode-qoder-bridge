@@ -172,6 +172,7 @@ export function shouldHideCommand(
     : {};
   switch (command.name) {
     case "qoder_usage":
+    case "qoder_checkin":
     case "qoder_models":
       return false;
     case "qoder_sessions":

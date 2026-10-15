@@ -1,8 +1,8 @@
-import { query } from "@qoder-ai/qoder-agent-sdk";
 import type { UsageInfo } from "@qoder-ai/qoder-agent-sdk";
+import { getSdkRuntime } from "./sdk-runtime.js";
 import { findQoderCLI } from "./auth.js";
 import { idlePrompt } from "./sdk-session.js";
-import { hasQoderCredential, qoderAuth } from "./sdk-auth.js";
+import { applyBrowserAuthRegion, browserAuthVpcEndpoint, hasQoderCredential, qoderAuth } from "./sdk-auth.js";
 import { debug, describeError } from "./logger.js";
 import { closeAsyncIterator, withTimeout } from "./async-utils.js";
 
@@ -27,21 +27,25 @@ export function getLiveUsage(force = false): Promise<UsageInfo | null> {
 
   const request = (async () => {
     const abortController = new AbortController();
-    let q: ReturnType<typeof query> | undefined;
+    let q: ReturnType<typeof import("@qoder-ai/qoder-agent-sdk").query> | undefined;
     const timeout = setTimeout(() => abortController.abort(), FETCH_TIMEOUT_MS);
     if (typeof timeout.unref === "function") timeout.unref();
 
     try {
-      if (!hasQoderCredential()) return null;
-      const cli = findQoderCLI();
-      q = query({
+      const environment = applyBrowserAuthRegion(process.env);
+      if (!hasQoderCredential(environment)) return null;
+      const cli = findQoderCLI(false, environment);
+      const sdk = await getSdkRuntime(environment);
+      q = sdk.query({
         prompt: idlePrompt(abortController.signal),
         options: {
-          auth: qoderAuth(),
+          auth: qoderAuth(environment),
           abortController,
           maxTurns: 1,
           persistSession: false,
           ...(cli ? { pathToQoderCLIExecutable: cli } : {}),
+          ...(browserAuthVpcEndpoint() ? { vpcEndpoint: browserAuthVpcEndpoint() } : {}),
+          env: environment,
         },
       });
       const usage = await withTimeout(
