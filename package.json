@@ -90,10 +90,10 @@
     "zod": "4.6.6"
   },
   "devDependencies": {
-    "@ai-sdk/provider": "3.0.8",
-    "@opentui/solid": "0.6.1",
-    "@types/node": "26.6.5",
-    "solid-js": "1.9.12",
+    "@ai-sdk/provider": "4.0.34",
+    "@opentui/solid": "0.8.0",
+    "@types/node": "26.6.6",
+    "solid-js": "1.9.17",
     "typescript": "7.0.2"
   },
   "peerDependencies": {
